@@ -41,6 +41,9 @@ aside .who b{display:block;color:#fff}
 main{flex:1;padding:22px 26px;min-width:0}
 h2{margin:0 0 16px;font-size:22px}
 .topbar{display:none}
+#syncbar{display:flex;align-items:center;gap:10px;justify-content:flex-start;font-size:12px;color:var(--muted);margin:-6px 0 10px}
+#syncbar.err{color:var(--red)}
+#syncbar button.spin{opacity:.6}
 
 /* controls */
 .btn{background:var(--navy);color:#fff;border:0;border-radius:9px;padding:9px 18px;cursor:pointer;font-weight:500}
@@ -139,7 +142,10 @@ tr:hover td{background:rgba(120,140,200,.06)}
     <button class="nav mobonly" id="logout2" type="button"><span>⎋</span>خروج</button>
     <div class="who"><b id="whoName"></b><span id="whoRole"></span><br><a href="#" id="logout" style="color:var(--gold)">تسجيل الخروج</a></div>
   </aside>
-  <main id="view"></main>
+  <main>
+    <div id="syncbar" class="noprint"><span id="syncTxt"></span><button class="btn ghost sm" id="syncBtn" type="button">↻ تحديث</button></div>
+    <div id="view"></div>
+  </main>
 </div>
 
 <script>
@@ -171,6 +177,7 @@ async function boot(){
   await enter(session.user);
 }
 function showLogin(msg){
+  stopAutoRefresh();
   $('#app').classList.add('hidden');$('#login').classList.remove('hidden');
   if(msg)$('#loginMsg').innerHTML=msg;
 }
@@ -203,8 +210,43 @@ async function enter(user){
   $('#login').classList.add('hidden');$('#app').classList.remove('hidden');
   $('#whoName').textContent=ME.name;$('#whoRole').textContent=ROLES[ME.role];
   await loadBase();
-  buildNav();go(ME.role==='center'?'dash':'dash');
+  buildNav();go('dash');
+  startAutoRefresh();
 }
+
+/* ---------- auto refresh ---------- */
+const REFRESH_MS=60000;
+let _timer=null,_busy=false,_lastOk=null;
+function setSync(ok,msg){
+  const bar=$('#syncbar');bar.classList.toggle('err',!ok);
+  $('#syncTxt').textContent=msg;
+}
+function clock(d){return d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}
+async function refreshNow(){
+  if(!ME||_busy)return;
+  _busy=true;$('#syncBtn').classList.add('spin');
+  try{
+    await loadBase();
+    // only data views are refreshed; forms are never re-rendered so typed values are kept
+    if(page==='dash')await vDash(true);
+    else if(page==='inc')await listInc();
+    else if(page==='exp')await listExp();
+    else if(page==='stmt')await runStmt();
+    _lastOk=new Date();setSync(true,'آخر تحديث: '+clock(_lastOk)+' — تلقائي كل دقيقة');
+  }catch(e){setSync(false,'تعذّر التحديث، سيُعاد المحاولة'+(_lastOk?' — آخر نجاح '+clock(_lastOk):''))}
+  finally{_busy=false;$('#syncBtn').classList.remove('spin')}
+}
+function startAutoRefresh(){
+  stopAutoRefresh();
+  _lastOk=new Date();setSync(true,'آخر تحديث: '+clock(_lastOk)+' — تلقائي كل دقيقة');
+  _timer=setInterval(()=>{if(document.visibilityState==='visible')refreshNow()},REFRESH_MS);
+}
+function stopAutoRefresh(){if(_timer){clearInterval(_timer);_timer=null}}
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState==='visible'&&ME&&(!_lastOk||Date.now()-_lastOk>15000))refreshNow();
+});
+window.addEventListener('online',()=>{if(ME)refreshNow()});
+$('#syncBtn').addEventListener('click',refreshNow);
 async function loadBase(){
   const [c,s]=await Promise.all([sb.from('centers').select('*').order('sort_order').order('name'),sb.from('settings').select('*')]);
   CENTERS=c.data||[];
@@ -228,8 +270,8 @@ const centerOpts=(sel,all)=>(all?`<option value="">كل المراكز</option>`
 function flash(el,type,text){el.innerHTML=`<div class="msg ${type}">${esc(text)}</div>`;setTimeout(()=>{el.innerHTML=''},4000)}
 
 /* ---------- dashboard ---------- */
-async function vDash(){
-  const v=$('#view');v.innerHTML='<h2>لوحة الأرصدة</h2><p>جارٍ التحميل…</p>';
+async function vDash(silent){
+  const v=$('#view');if(!silent)v.innerHTML='<h2>لوحة الأرصدة</h2><p>جارٍ التحميل…</p>';
   const {data,error}=await sb.from('balances').select('*').order('sort_order').order('name');
   if(error)return v.innerHTML=`<div class="msg err">${esc(error.message)}</div>`;
   const tot=data.reduce((a,r)=>({i:a.i+Number(r.total_income),e:a.e+Number(r.total_expense),b:a.b+Number(r.balance)}),{i:0,e:0,b:0});
