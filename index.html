@@ -92,7 +92,10 @@ tr:hover td{background:rgba(120,140,200,.06)}
 .tag{display:inline-block;padding:2px 9px;border-radius:99px;font-size:12px;background:var(--bg);border:1px solid var(--line)}
 .net-preview{background:var(--bg);border-radius:10px;padding:12px 14px;margin-top:12px;display:flex;justify-content:space-between;align-items:center;font-size:17px}
 
+.mobonly{display:none!important}
 @media (max-width:800px){
+  aside button.mobonly{display:flex!important;margin-inline-start:auto;background:var(--gold);color:#1b1b1b;font-weight:700}
+  aside button.nav{padding:9px 11px}
   #app{flex-direction:column}
   aside{width:100%;height:auto;position:static;flex-direction:row;flex-wrap:wrap;padding:8px}
   aside .brand,aside .who{display:none}
@@ -133,6 +136,7 @@ tr:hover td{background:rgba(120,140,200,.06)}
   <aside id="side">
     <div class="brand">الوارد والمنصرف<small>القيم الكويتية</small></div>
     <div id="nav" style="display:contents"></div>
+    <button class="nav mobonly" id="logout2" type="button"><span>⎋</span>خروج</button>
     <div class="who"><b id="whoName"></b><span id="whoRole"></span><br><a href="#" id="logout" style="color:var(--gold)">تسجيل الخروج</a></div>
   </aside>
   <main id="view"></main>
@@ -185,7 +189,9 @@ $('#signupBtn').addEventListener('click',async()=>{
   if(data.session)await enter(data.user);
   else $('#loginMsg').innerHTML=`<div class="msg ok">تم إنشاء الحساب. افتح رسالة التأكيد في بريدك ثم سجّل الدخول.</div>`;
 });
-$('#logout').addEventListener('click',async e=>{e.preventDefault();await sb.auth.signOut();ME=null;showLogin();});
+async function doLogout(e){e&&e.preventDefault();await sb.auth.signOut();ME=null;showLogin();}
+$('#logout').addEventListener('click',doLogout);
+$('#logout2').addEventListener('click',doLogout);
 
 async function enter(user){
   const {data,error}=await sb.from('users').select('*').eq('email',user.email.toLowerCase()).eq('active',true).maybeSingle();
