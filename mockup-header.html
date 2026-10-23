@@ -1,0 +1,35 @@
+<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>نموذج رأس الصفحة (اقتراح)</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#1B2733;--paper:#F7F5F0;--line:#E3E0D6;--blue:#2B5C8A;--gold:#D4AF37}
+*{box-sizing:border-box}body{margin:0;background:#e9e6df;font-family:'IBM Plex Sans Arabic',sans-serif;color:#222}
+h1.note{font-size:15px;margin:14px;color:#555}
+.opt{margin:14px;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--paper)}
+.opt>.cap{background:#fff;padding:8px 14px;font-weight:600;border-bottom:1px solid var(--line)}
+.top{background:var(--ink);color:#fff;height:58px;display:flex;align-items:center;gap:14px;padding:0 16px}
+.top .sys{font-weight:600;font-size:15px;opacity:.85;white-space:nowrap}
+.top .co{font-weight:700;font-size:19px;color:#fff;white-space:nowrap}
+.top .pg{font-weight:700;font-size:19px;color:var(--gold);white-space:nowrap}
+.top .sp{flex:1}.top .ic{opacity:.8}
+.sub{position:sticky;top:0;background:#fff;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:6px;padding:0 16px;height:46px}
+.sub .tab{padding:12px 14px;font-size:14px;color:#556;border-bottom:3px solid transparent;white-space:nowrap}
+.sub .tab.on{color:var(--blue);border-color:var(--blue);font-weight:600}
+.sub .back{margin-right:auto;border:1px solid var(--line);border-radius:8px;padding:6px 12px;font-size:13px;color:#444;background:#fff}
+.body{padding:16px}.body .notes{font-size:13px;color:#666;margin:0 0 12px}
+.card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px;height:70px}
+.mob{max-width:390px}
+.mob .top{height:52px}.mob .top .co{font-size:15px}.mob .top .pg{font-size:15px}
+</style></head><body>
+<h1 class="note">اقتراح: عنوان الصفحة في الشريط العلوي، شريط التنقل ثابت، زر «رجوع» عند اليسار، اسم الشركة أكبر. الألوان للتوضيح فقط.</h1>
+
+<div class="opt"><div class="cap">الحاسوب</div>
+ <div class="top"><span class="sys">نظام مؤسسة القيم</span><span class="co">شركة القيم الكويتية</span><span style="opacity:.5">‹</span><span class="pg">القيود الدورية</span><span class="sp"></span><span class="ic">🔍 🔔 🔄</span></div>
+ <div class="sub"><span class="tab on">القوالب</span><span class="tab">كشف الترحيل</span><span class="tab">المرحَّل</span><span class="tab">المتخطّى</span><span class="back">رجوع ←</span></div>
+ <div class="body"><p class="notes">مصروفات وإيرادات تتكرر بانتظام، تُعرَّف مرة واحدة وتُعتمد، ثم يُجهّز النظام استحقاقاتها.</p><div class="card">محتوى الصفحة يبدأ هنا، أعلى بنحو ١٥٠ بكسل مما هو الآن.</div></div></div>
+
+<div class="opt mob"><div class="cap">الجوال</div>
+ <div class="top"><span class="co">القيم الكويتية</span><span style="opacity:.5">‹</span><span class="pg">القيود الدورية</span><span class="sp"></span><span class="ic">🔍</span></div>
+ <div class="sub" style="overflow:auto"><span class="tab on">القوالب</span><span class="tab">الترحيل</span><span class="tab">المرحَّل</span><span class="tab">المتخطّى</span></div>
+ <div class="body"><p class="notes">مصروفات وإيرادات تتكرر بانتظام.</p><div class="card">المحتوى</div></div></div>
+</body></html>
