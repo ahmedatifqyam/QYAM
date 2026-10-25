@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://vmi3593541.contaboserver.net https://cdn.jsdelivr.net; frame-src 'self' blob: data:; media-src 'self' blob: data:; object-src 'none'; base-uri 'self'; form-action 'self'">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>نظام طلبات الصرف - شركة القيم الكويتية</title>
+<title>نظام الصرف — تجريبي</title>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root{
@@ -1214,9 +1214,11 @@
     .modal-box{padding:18px;}
     .table-scroll-wrap{position:relative;}
     .app-table{min-width:640px;}
+<style>#testBanner{position:fixed;top:0;right:0;left:0;z-index:99999;background:#c2410c;color:#fff;text-align:center;font:700 13px/26px sans-serif;height:26px}
     .scroll-hint{display:block;}
     input, select, textarea{font-size:16px !important;}
     .list-item, .req-card{padding:14px;}
+<div id="testBanner">⚠ نظام تجريبي — بيانات وهمية للتجربة فقط، ليس النظام الحقيقي</div>
     /* تقرير الميزانية: أربع بطاقات في صف واحد لا تسع الهاتف، وشريط
        التبويبات لا ينكمش. فبطاقتان في الصف، والتبويبات تنزلق أفقياً. */
     .summary-cards{grid-template-columns:repeat(2,1fr) !important;}
@@ -1244,8 +1246,8 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.0.3/qrcode.min.js"></script>
 <script>
-const SUPABASE_URL = 'https://ricnftouvkidfqllnybl.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_4pGMLmvs9XN7DK16fp1ymQ_UzRyojRe';
+const SUPABASE_URL = 'https://xisaigwntqeowathxpsr.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_xjXn7s_Jn8U3uVttzEgUFw_pGK5XJwH';
 // شريط تقدّم أعلى الصفحة يظهر أثناء أي اتصال بقاعدة البيانات (بعد 250 مللي ثانية، ولا يظهر للتحديث الخلفي الصامت)
 let _netInFlight = 0, _netTimer = null, _netHideTimer = null, _netShownAt = 0;
 function netStart(){
