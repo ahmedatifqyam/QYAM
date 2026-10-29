@@ -1581,15 +1581,27 @@ function mapRequestRow(r){
 
 // أعمدة المستخدم التي تُنزَّل للمتصفح — بلا عمود password إطلاقاً.
 // المصادقة تتم في الخادم عبر Supabase Auth، فلا داعي لأن يرى المتصفح كلمات المرور.
-const USER_COLS = 'id,phone,name,role,center_id,signature_data,stamp_data,email,name_en,iban,'
-  + 'id_file_data,bank_file_data,signature_mode,signature_color,signature_width,company_id,'
-  + 'national_id,stamp_data_2,manager_id,notif_seen_at,job_title,level_id,request_approver_id,'
+// البيانات الشخصية (الآيبان والرقم المدني وصور الهوية والبنك) لا تُنزَّل مع القائمة: تأتي من qy_users_private لصاحبها ولمدير النظام فقط
+const USER_COLS = 'id,phone,name,role,center_id,signature_data,stamp_data,email,name_en,'
+  + 'signature_mode,signature_color,signature_width,company_id,'
+  + 'stamp_data_2,manager_id,notif_seen_at,job_title,level_id,request_approver_id,'
   + 'next_approver_id,exec_substitute_id,is_general,no_request_approver,no_next_approver,direct_to_transfer,'
   + 'approval_deadline_days,escalate_mode,escalate_user_id,auth_id,is_suspended,suspended_at,suspended_note';
 
 async function reloadUsers(){
   const {data} = await db.from('users').select(USER_COLS);
-  if(data) state.users = data.map(dbUserToState);
+  if(data){ state.users = data.map(dbUserToState); await mergeUserPrivate(); }
+}
+// يدمج البيانات الشخصية: من الدالة الآمنة إن وُجدت، وإلا (قاعدة لم تُحدَّث بعد) من الأعمدة مباشرة كما كان
+async function mergeUserPrivate(){
+  try{
+    let r = await db.rpc('qy_users_private');
+    if(r.error) r = await db.from('users').select('id,iban,national_id,id_file_data,bank_file_data');
+    if(r.error || !r.data) return;
+    const map = {}; r.data.forEach(x=>{ map[x.id] = x; });
+    (state.users||[]).forEach(u=>{ const p = map[u.id]; if(!p) return;
+      u.iban = p.iban||''; u.civilId = p.national_id||''; u.idFileData = p.id_file_data||''; u.bankFileData = p.bank_file_data||''; });
+  }catch(e){}
 }
 
 // التحميل الكامل بعد ثبوت الهوية. الزرع لا يلزم إلا على قاعدة فارغة فعلاً.
@@ -1634,6 +1646,7 @@ async function loadAll(){
   state.companies        = d(0).map(dbCompanyToState);
   state.centers          = d(1).map(dbCenterToState);
   state.users            = d(2).map(dbUserToState);
+  if(r[2] && r[2].error) console.error('تحميل المستخدمين', r[2].error);
   state.userCompanyLinks = d(3).map(x=>({userId:x.user_id, companyId:x.company_id}));
   state.customRoles      = d(4).map(r0=>({id:r0.id, companyId:r0.company_id, name:r0.name, description:r0.description||'', defaultLevelName:r0.default_level_name||'موظف', generalDefault:!!r0.general_default}));
   state.beneficiaries    = d(5).map(dbBeneficiaryToState);
@@ -1662,7 +1675,7 @@ async function loadAll(){
   state.resetRequests  = d(16).map(r=>({id:r.id, phone:r.phone, userId:r.user_id, companyId:r.company_id,
     status:r.status, requestedAt:r.requested_at, handledBy:r.handled_by, handledAt:r.handled_at}));
   state.pagePerms = d(17);
-  await loadRecurring();
+  await Promise.all([loadRecurring(), mergeUserPrivate()]);
 }
 
 
@@ -2385,7 +2398,7 @@ function renderExecTab(app){
 }
 
 async function seedIfEmpty(){
-  const {count} = await db.from('users').select('*', {count:'exact', head:true});
+  const {count} = await db.from('users').select('id', {count:'exact', head:true});
   if(count && count>0) return;
   await dbCheck(await db.from('companies').insert([{id:'co_qayam', name_ar:'شركة القيم الكويتية', name_en:'Qayam Kuwait Company', code:'QYM', hq_code:'HQ', primary_color:'#C0392B'}]), 'زرع بيانات الشركة الافتراضية');
   await dbCheck(await db.from('centers').insert([{id:'c_qortoba', name:'مركز شباب قرطبة', letterhead_data:null, company_id:'co_qayam', code:'QRT'}]), 'زرع بيانات المركز الافتراضي');
