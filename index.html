@@ -135,6 +135,15 @@
   .nav-subcat{font-size:11px;font-weight:700;color:#7f93a8;margin:4px 14px 0;line-height:1.5;}
   .admin-nav-item{display:block;padding:7px 12px 7px 8px;margin:1px 0;line-height:1.5;border-radius:7px;cursor:pointer;font-size:13.5px;color:#cfd8e3;margin-right:18px;border-right:3px solid transparent;}
   .admin-nav-item .nav-count{float:left;margin:2px 0 0;}
+  /* حقل فيه خطأ: إطار أحمر وهزّة خفيفة حتى يُصحَّح */
+  .field-err{border-color:#b91c1c !important;box-shadow:0 0 0 3px rgba(185,28,28,.18) !important;animation:qyShake .35s ease-in-out;}
+  @keyframes qyShake{0%,100%{transform:translateX(0);}25%{transform:translateX(-4px);}75%{transform:translateX(4px);}}
+  /* حسابي ← الأصوات: كل صوت سطر واحد (العنوان والشرح، ثم التحكم، ثم زر التجربة) */
+  .snd-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:10px 0;border-top:1px solid var(--line);}
+  .snd-row:first-of-type{border-top:0;}
+  .snd-lab{flex:1 1 260px;min-width:0;}
+  .snd-lab .file-hint{margin:2px 0 0;}
+  .snd-sw{display:flex !important;align-items:center;gap:8px;height:40px;margin:0 !important;font-weight:400;cursor:pointer;min-width:180px;}
   .tab-count{display:inline-block;min-width:18px;padding:0 6px;border-radius:9px;background:#D4AF37;color:#1B2733;font-size:11px;font-weight:700;line-height:18px;margin-right:4px;text-align:center;}
   .admin-nav-item:hover{background:rgba(255,255,255,.08);color:#fff;}
   .admin-nav-item.active{background:rgba(255,255,255,.13);color:#fff;font-weight:600;border-right-color:#D4AF37;}
@@ -223,6 +232,10 @@
   .adm-sub.active{color:var(--blue);border-bottom-color:var(--blue);}
   /* خارج الكتلة (صفحة التحليلات لمن لا يرى شريط الإدارة) يحمل حدوده بنفسه */
   .adm-subs-solo{border:1px solid var(--line);border-radius:8px;margin:0 0 18px;}
+  /* الصف الفاتح حين لا أجزاء للصفحة: يحمل سطر التعريف بها، فيبقى الصفّان ظاهرين في كل الصفحات */
+  .sec-note{background:var(--blue-bg);border-top:1px solid rgba(27,39,51,.08);padding:8px 14px;min-height:36px;box-sizing:border-box;
+    font-size:12.5px;line-height:1.55;color:var(--muted);display:block;}
+  .sec-note b{color:var(--text);}
   /* إخفاء الأقسام غير النشطة: لا بدّ من !important لأن .list-item وغيرها تضبط display */
   [hidden]{display:none !important;}
   @media(max-width:640px){ .adm-head{flex-wrap:wrap;gap:6px;} .adm-head h1{font-size:19px;} }
@@ -1221,7 +1234,7 @@
     .rep-bar select{min-width:0 !important;flex:1 1 130px;}
     .search-box input{width:110px;}
     .row{flex-direction:column;}
-    .row > *{min-width:0;}
+    .row > *{min-width:0;flex-basis:auto;}   /* في العمود يصير الأساس ارتفاعاً: بلا هذا يأخذ الحقل ارتفاع عرضه (٣٨٠) فراغاً */
     .stat-cards{grid-template-columns:repeat(2,1fr);}
     .doc-page{max-width:100%;}
     .attachment-dual{flex-direction:column;align-items:center;}
@@ -1260,6 +1273,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.0.3/qrcode.min.js"></script>
-<script src="app.js?v=e8153690d3"></script>
+<script src="app.js?v=cfe5007395"></script>
 </body>
 </html>

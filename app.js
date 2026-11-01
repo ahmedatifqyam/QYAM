@@ -865,7 +865,8 @@ const PAGE_INTRO = {
   'الهوية والمستندات':'هوية النظام والشركات وترويسة المستندات المطبوعة.',
   'القيود الدورية والإشعارات':'من يُنشئ القوالب الدورية ومن يصله إشعارها.'
 };
-function syncPageTitle(){
+function syncPageTitle(){ syncPageTitleInner(); fillSecNote(); }
+function syncPageTitleInner(){
   document.querySelectorAll('h1[data-top]').forEach(h=>h.removeAttribute('data-top'));
   const tb = document.getElementById('tbPage'), app = document.getElementById('app');
   if(!tb || !app) return;
@@ -875,7 +876,8 @@ function syncPageTitle(){
   const title = h.textContent.replace(/\s+/g,' ').trim();
   tb.textContent = title;
   h.setAttribute('data-top','1');
-  // سطر التعريف بالصفحة: في كل الصفحات، وفي موضع واحد ثابت (بعد صفّي التبويب مباشرة، وإلا في أول الصفحة)
+  // سطر التعريف بالصفحة: في كل الصفحات، وفي موضع واحد ثابت (في الصف الفاتح، أو بعد صفّي التبويب مباشرة، وإلا في أول الصفحة)
+  if(document.querySelector('#secTabs .sec-note')) return;
   const kids = [...app.children];
   let intro = kids.find(e=>e.tagName==='P' && e.classList.contains('sub'));
   const nav = app.querySelector(':scope > .adm-nav2') || app.querySelector(':scope > .adm-subs-solo');
@@ -1495,7 +1497,7 @@ const SEC_KIND_AR = {
   req_complete:'تأكيد صرف بلا صلاحية', req_reopen:'إعادة فتح طلب مصروف', req_status_forward:'رفع طلب لمراحل الصرف', req_locked_edit:'تعديل طلب مقفل',
   req_edit_stranger:'تعديل طلب لا يخصه', req_item_locked:'تغيير بند طلب مقفل', req_bank_ref:'تسجيل تحويل بنكي بلا صلاحية', req_ins_owner:'إنشاء طلب باسم غيره',
   req_ins_status:'إنشاء طلب بحالة متقدمة', req_delete:'حذف طلب بلا صلاحية', ben_cancelled:'تعديل مستفيدي طلب ملغى', ben_locked:'تعديل مستفيدي طلب مقفل', ben_stranger:'تعديل مستفيدي طلب لا يخصه',
-  js_error:'خطأ في الواجهة', promise_error:'خطأ غير معالج', db_error:'خطأ قاعدة بيانات', login_failed:'دخول فاشل', login_ok:'دخول ناجح', logout:'خروج'
+  js_error:'خطأ في الواجهة', promise_error:'خطأ غير معالج', db_error:'خطأ قاعدة بيانات', login_failed:'دخول فاشل', login_suspended:'دخول حساب موقوف', login_ok:'دخول ناجح', logout:'خروج'
 };
 async function loadSecUnread(){
   try{
@@ -1529,7 +1531,7 @@ async function secMarkReviewed(table, ids){
 }
 function secVisibleRows(){
   const L = state.secLog || {alerts:[], events:[]}, tab = state.secTab || 'alerts';
-  let rows = tab==='alerts' ? L.alerts : tab==='errors' ? L.events.filter(x=>['js_error','promise_error','db_error'].includes(x.kind)) : L.events.filter(x=>['login_failed','login_ok','logout'].includes(x.kind));
+  let rows = tab==='alerts' ? L.alerts : tab==='errors' ? L.events.filter(x=>['js_error','promise_error','db_error'].includes(x.kind)) : L.events.filter(x=>['login_failed','login_suspended','login_ok','logout'].includes(x.kind));
   if(!state.secShowDone) rows = rows.filter(x=>!x.reviewed);
   if(state.secKind) rows = rows.filter(x=>x.kind===state.secKind);
   const q = (state.secQ||'').trim().toLowerCase();
@@ -1542,7 +1544,7 @@ function renderSecurityLog(app){
   const L = state.secLog, tab = state.secTab || 'alerts';
   if(!L && !state._secLoading){ state._secLoading = true; setTimeout(()=>{ state._secLoading = false; loadSecurityLog(); }, 0); }
   const rows = L ? secVisibleRows() : [];
-  const kinds = Array.from(new Set((tab==='alerts' ? (L?L.alerts:[]) : (L?L.events:[])).map(x=>x.kind).filter(k=>tab==='alerts' ? true : tab==='errors' ? ['js_error','promise_error','db_error'].includes(k) : ['login_failed','login_ok','logout'].includes(k))));
+  const kinds = Array.from(new Set((tab==='alerts' ? (L?L.alerts:[]) : (L?L.events:[])).map(x=>x.kind).filter(k=>tab==='alerts' ? true : tab==='errors' ? ['js_error','promise_error','db_error'].includes(k) : ['login_failed','login_suspended','login_ok','logout'].includes(k))));
   const failedByIp = {}; if(L && tab==='login'){ const cut = Date.now() - 864e5; L.events.forEach(x=>{ if(x.kind==='login_failed' && new Date(x.at).getTime()>cut){ const k = x.ip||x.device_id||'?'; failedByIp[k] = (failedByIp[k]||0)+1; } }); }
   let head, body;
   const done = (tbl,id,r)=> r.reviewed ? '<span class="file-hint">✓ تمت</span>' : `<button class="btn btn-ghost btn-sm" title="يخفي هذا السطر من القائمة بعد مراجعته" data-on-click="#26" data-on-click-args="${qa([(''+(tbl)), (id)])}">تمت المراجعة</button>`;
@@ -1560,8 +1562,8 @@ function renderSecurityLog(app){
   } else {
     head = '<th>الوقت</th><th>الحدث</th><th>الرقم المُدخَل / المستخدم</th><th>IP</th><th>الجهاز</th><th>فاشلة من نفس الجهة (٢٤ س)</th><th></th>';
     body = rows.map(r=>{ const n = r.kind==='login_failed' ? (failedByIp[r.ip||r.device_id||'?']||1) : '';
-      return `<tr><td>${secWhen(r.at)}</td><td><b style="color:${r.kind==='login_failed'?'#b91c1c':'inherit'}">${escH(SEC_KIND_AR[r.kind]||r.kind)}</b></td>
-      <td>${r.kind==='login_failed' ? `<span dir="ltr">${escH(r.phone_tried||'—')}</span>` : escH(secUserName(r.user_id))}${r.message?`<div class="file-hint">${escH(r.message)}</div>`:''}</td>
+      return `<tr><td>${secWhen(r.at)}</td><td><b style="color:${r.kind==='login_failed'?'#b91c1c':r.kind==='login_suspended'?'#b45309':'inherit'}">${escH(SEC_KIND_AR[r.kind]||r.kind)}</b></td>
+      <td>${r.kind==='login_failed' ? `<span dir="ltr">${escH(r.phone_tried||'—')}</span>` : (r.kind==='login_suspended' && !r.user_id) ? (()=>{ const su = (state.users||[]).find(u=>u.phone && u.phone===r.phone_tried); return su ? escH(su.name)+` <span class="file-hint" dir="ltr">${escH(r.phone_tried||'')}</span>` : `<span dir="ltr">${escH(r.phone_tried||'—')}</span>`; })() : escH(secUserName(r.user_id))}${r.message?`<div class="file-hint">${escH(r.message)}</div>`:''}</td>
       <td dir="ltr">${escH(r.ip||'—')}</td><td title="${escH((r.device&&r.device.ua)||'')}">${escH(qyUaShort(r.device))}<div class="file-hint">${escH((r.device&&r.device.tz)||'')}</div></td>
       <td>${n ? (n>=5?`<b style="color:#b91c1c">${n} ⚠</b>`:n) : ''}</td><td>${r.kind==='login_failed' ? done('qy_client_events',r.id,r) : ''}</td></tr>`; }).join('');
   }
@@ -2110,6 +2112,7 @@ function getUserUnit(user){
   return 'إدارة الشركة';
 }
 
+let _qyErrCount = 0;          // عدد رسائل الخطأ منذ فتح الصفحة: الزر لا يُظهر ✓ إن ظهر خطأ أثناء عمله
 function showToast(message, type){
   const host = document.getElementById('toastHost');
   const el = document.createElement('div');
@@ -2117,6 +2120,95 @@ function showToast(message, type){
   el.textContent = message;
   host.appendChild(el);
   setTimeout(()=>{ el.style.opacity='0'; el.style.transition='opacity .3s'; setTimeout(()=>el.remove(), 300); }, 3200);
+  const kind = type || 'error';
+  if(kind==='error'){ _qyErrCount++; playToastSound('err'); if(!_qyFieldHandled) setTimeout(()=>autoFocusFieldFor(message), 0); }
+  else if(kind==='success') playToastSound('ok');
+}
+// ── أصوات الرسائل: نغمة للخطأ وأخرى للنجاح، ولكل منهما تشغيل وإيقاف من «حسابي ← الأصوات» (يُحفظ في هذا الجهاز) ──
+function toastSoundOn(k){ try{ return localStorage.getItem('qayam_snd_'+k)!=='0'; }catch(e){ return true; } }
+function setToastSound(k, on){
+  try{ localStorage.setItem('qayam_snd_'+k, on?'1':'0'); }catch(e){}
+  if(on) playToastSound(k, true);
+  document.querySelectorAll('.snd-sw input').forEach(i=>{ const lab = i.parentElement; if(lab && lab.lastChild && lab.lastChild.nodeType===3) lab.lastChild.textContent = ' ' + (i.checked ? 'مُفعَّل' : 'متوقف'); });
+}
+const _toastSndLast = {};
+function playToastSound(k, force){
+  if(!force && !toastSoundOn(k)) return;
+  const now0 = Date.now(); if(!force && _toastSndLast[k] && now0 - _toastSndLast[k] < 400) return; _toastSndLast[k] = now0;
+  try{
+    const Ctx = window.AudioContext || window.webkitAudioContext; if(!Ctx) return;
+    if(!window._notifAudioCtx) window._notifAudioCtx = new Ctx();
+    const ctx = window._notifAudioCtx; if(ctx.state==='suspended') ctx.resume();
+    const t = ctx.currentTime;
+    const notes = k==='err' ? [[440,t,0.13,'triangle',0.2],[294,t+0.13,0.2,'triangle',0.2]]     // نغمة هابطة: انتبه
+                            : [[660,t,0.09,'sine',0.13],[990,t+0.09,0.14,'sine',0.13]];          // نغمة صاعدة: تمّ
+    notes.forEach(([f,st,dur,wave,g])=>{
+      const o = ctx.createOscillator(), gn = ctx.createGain();
+      o.type = wave; o.frequency.value = f;
+      gn.gain.setValueAtTime(0.0001, st); gn.gain.exponentialRampToValueAtTime(g, st+0.012); gn.gain.exponentialRampToValueAtTime(0.0001, st+dur);
+      o.connect(gn); gn.connect(ctx.destination); o.start(st); o.stop(st+dur+0.02);
+    });
+  }catch(e){}
+}
+// ── خطأ في حقل: الرسالة، ثم ينتقل المؤشر إلى الحقل نفسه ويُلوَّن بالأحمر حتى يُصحَّح ──
+let _qyFieldHandled = false;
+function fieldErr(target, msg){
+  const el = (typeof target==='string') ? document.querySelector(target) : target;
+  _qyFieldHandled = true; try{ showToast(msg, 'error'); } finally { _qyFieldHandled = false; }
+  if(el) focusField(el);
+  return false;
+}
+// مسار ثابت للحقل (بالمعرّف أو بترتيبه داخل أقرب عنصر له معرّف) ليُعاد إليه المؤشر إن أُعيد رسم الصفحة بعد الخطأ مباشرة
+function qySelPath(el){
+  const parts = [];
+  for(let e = el; e && e!==document.body; e = e.parentElement){
+    if(e.id){ parts.unshift('#'+CSS.escape(e.id)); return parts.join(' > '); }
+    const sib = [...e.parentElement.children].filter(x=>x.tagName===e.tagName);
+    parts.unshift(e.tagName.toLowerCase() + ':nth-of-type(' + (sib.indexOf(e)+1) + ')');
+  }
+  return null;
+}
+let _qyPendingField = null;
+function reapplyFieldErr(){
+  const p = _qyPendingField; if(!p) return;
+  if(Date.now() - p.at > 2500 || state.view!==p.view){ _qyPendingField = null; return; }
+  const el = document.querySelector(p.sel); if(!el || el.classList.contains('field-err')) return;
+  focusField(el, true);
+}
+function focusField(el, again){
+  if(!el || !el.isConnected) return;
+  if(!again){ const sel = qySelPath(el); _qyPendingField = sel ? {sel, at:Date.now(), view:state.view} : null; }
+  const box = el.closest('.sel-add, .field-with-calc') || el;          // الحقل المؤطَّر مع زرّه: يُلوَّن الإطار كله
+  try{ el.scrollIntoView({behavior:'smooth', block:'center'}); }catch(e){ try{ el.scrollIntoView(); }catch(_){} }
+  setTimeout(()=>{ try{ el.focus({preventScroll:true}); }catch(e){} }, 280);
+  box.classList.remove('field-err'); void box.offsetWidth; box.classList.add('field-err');
+  const clear = ()=>{ box.classList.remove('field-err'); _qyPendingField = null; el.removeEventListener('input', clear); el.removeEventListener('change', clear); };
+  el.addEventListener('input', clear); el.addEventListener('change', clear);
+}
+// لكل رسائل «أدخل/اختر/حدّد…» في النظام: يُبحث عن الحقل الذي تذكره الرسالة (بمطابقة كلماتها مع عناوين الحقول) في النافذة المفتوحة أو الصفحة، وإلا فأول حقل إلزامي فارغ
+const FIELD_MSG_RE = /(أدخل|اختر|اختيار|إدخال|حدّد|حدد|تحديد|اكتب|كتابة|إلزامي|مطلوب|فارغ|غير صحيح|غير صالح)/;
+function autoFocusFieldFor(msg){
+  if(!FIELD_MSG_RE.test(String(msg||''))) return;
+  const modals = [...document.querySelectorAll('.modal-overlay')].filter(m=>m.offsetParent!==null || getComputedStyle(m).position==='fixed');
+  const scope = modals.length ? modals[modals.length-1] : document.getElementById('app');
+  if(!scope) return;
+  const norm = t => String(t||'').replace(/[*()«»:،.\-—]/g,' ').split(/\s+/).map(w=>w.replace(/^(ال|بال|لل|وال)/,'').replace(/(اً|ًا|ا|ة)$/,'')).filter(w=>w.length>=3);
+  const mw = new Set(norm(msg));
+  const ctl = lab => { if(lab.htmlFor){ const x = document.getElementById(lab.htmlFor); if(x) return x; }
+    let n = lab.nextElementSibling; while(n && !n.matches('input,select,textarea') && !n.querySelector('input:not([type=checkbox]):not([type=file]),select,textarea')) n = n.nextElementSibling;
+    return n ? (n.matches('input,select,textarea') ? n : n.querySelector('input:not([type=checkbox]):not([type=file]),select,textarea')) : null; };
+  const vis = el => el && el.offsetParent!==null && !el.disabled && el.type!=='hidden';
+  const empty = el => !String(el.value||'').trim();
+  let best = null, bestScore = 0;
+  scope.querySelectorAll('label').forEach(lab=>{
+    const c = ctl(lab); if(!vis(c)) return;
+    const sc = norm(lab.textContent).filter(w=>mw.has(w)).length + (empty(c) ? 0.5 : 0);
+    if(sc > bestScore && sc >= 1){ best = c; bestScore = sc; }
+  });
+  if(!best){
+    for(const lab of scope.querySelectorAll('label')){ if(!/\*/.test(lab.textContent)) continue; const c = ctl(lab); if(vis(c) && empty(c)){ best = c; break; } }
+  }
+  if(best) focusField(best);
 }
 
 function toWesternDigits(str){
@@ -2310,7 +2402,7 @@ const PAGE_CATALOG = [
   {key:'ledger',    label:'دفتر الحركات',      hint:'قراءة: يرى · تعديل: يعكس ويسترد · تحكم كامل: قيد يدوي'},
   {key:'analytics', label:'التحليلات المالية', hint:'عرض فقط'},
   {key:'handovers', label:'الإسناد',            hint:'إسناد المعاملات لزميل عند الغياب أو الانتقال. يظهر دائماً لمن وصله إسناد'},
-  {key:'monitor',   label:'لوحة المتابعة',     hint:'ما يحدث في النظام: من ينتظر قراره، وما في يد المالية، وآخر الحركات (عرض فقط)'}
+  {key:'monitor',   label:'لوحة المتابعة',     hint:'ما يحدث في النظام: من ينتظر قراره، وما في يد المالية، وآخر الحركات (عرض فقط). افتراضياً: المالية والمدير التنفيذي'}
 ];
 const PAGE_FINANCE_ROLES = ['admin','accountant','cfo'];
 function pageDefaultLevel(role, key){
@@ -2319,7 +2411,7 @@ function pageDefaultLevel(role, key){
   if(key==='newreq' || key==='editreq' || key==='analytics') return 'full';          // الوضع الحالي: الجميع
   if(key==='revenues' || key==='ledger' || key==='recurring') return fin ? 'full' : 'none';
   if(key==='handovers') return role==='employee' ? 'none' : 'full';
-  if(key==='monitor') return fin ? 'full' : 'none';                  // المالية افتراضياً، ومن يُمنح من صفحة الصلاحيات   // الإسناد للمعتمِدين والمالية؛ الموظف بلا معاملات يعتمدها
+  if(key==='monitor') return (fin || role==='executive_manager') ? 'full' : 'none';   // المالية والمدير التنفيذي افتراضياً، ومن يُمنح من صفحة الصلاحيات
   return 'full';
 }
 function pageExplicitRow(key, role, companyId){
@@ -2499,27 +2591,64 @@ function injectGroupNav(){
   app.querySelectorAll(':scope > .adm-nav2[data-gn]').forEach(e=>e.remove());
   if(app.querySelector(':scope > .adm-nav2')) return;            // صفحات لها رأسها الخاص (لوحة التحكم)
   const v = state.view;
-  // حسابي: صف واحد من ثلاثة تبويبات (البطاقات الثلاث)
+  // الصفّان العلويان ثابتان في كل الصفحات (ظهورهما واختفاؤهما يربك العين):
+  // الداكن = صفحات القسم (ولو صفحة واحدة)، والفاتح = أجزاء الصفحة إن وُجدت، وإلا سطر التعريف بالصفحة
+  const mk = (darkHtml, lightHtml)=>{
+    const nav = document.createElement('div'); nav.className='adm-nav2 no-print'; nav.dataset.gn='1';
+    nav.innerHTML = `<div class="adm-tabs2">${darkHtml}</div><div id="secTabs"${lightHtml?' data-keep="1"':''}>${lightHtml||''}</div>`;
+    app.insertBefore(nav, app.firstChild);
+  };
+  // حسابي: الصف الداكن «حسابي»، وأجزاؤه الخمسة (البطاقات) في الصف الفاتح
   if(v==='account'){
     const cards = [...app.children].filter(e=>e.classList && e.classList.contains('card') && !e.closest('.modal-overlay'));
+    let light = '';
     if(cards.length>=2){
       const lab = c=>{ const h=c.querySelector('h2'); let t=h?h.textContent.trim():'قسم'; if(/^عرض صفحات/.test(t)) t='عرض الصفحات'; return t; };
-      const labels = cards.map(lab);
       const cur = Math.min(cards.length-1, Math.max(0, Number(state.accountSec||0)));
       cards.forEach((c,i)=>{ c.dataset.accsec = i; c.hidden = (i!==cur); });
-      const nav = document.createElement('div'); nav.className='adm-nav2 no-print'; nav.dataset.gn='1';
-      nav.innerHTML = `<div class="adm-tabs2">${labels.map((l,i)=>`<button type="button" class="adm-t2${i===cur?' active':''}" data-accsec-tab="${i}" data-on-click="setAccountSec" data-on-click-args="${qa([(i)])}">${escH(l)}</button>`).join('')}</div><div id="secTabs"></div>`;
-      app.insertBefore(nav, app.firstChild);
+      light = `<div class="adm-subs">${cards.map((c,i)=>`<button type="button" class="adm-sub${i===cur?' active':''}" data-accsec-tab="${i}" data-on-click="setAccountSec" data-on-click-args="${qa([(i)])}">${escH(lab(c))}</button>`).join('')}</div>`;
     }
+    mk(`<button type="button" class="adm-t2 active" data-on-click="#10">حسابي</button>`, light);
     return;
   }
   const sec = navSections().find(x=>!x.admin && x.pages.some(pg=>pg.views.includes(v)));
-  if(!sec || sec.pages.length<2) return;            // قسم من صفحة واحدة: عنوان الصفحة يكفي
+  if(!sec){
+    // صفحة خارج الأقسام (فحص المسارات، طلبات شركات سابقة بلا طلبات...): الصفّان باسمها، فلا تختلف عن غيرها
+    const h = app.querySelector(':scope > h1'); const t = h ? h.textContent.replace(/\s+/g,' ').trim() : '';
+    if(t && v!=='login') mk(`<button type="button" class="adm-t2 active" tabindex="-1">${escH(t)}</button>`, '');
+    return;
+  }
   const isOn = pg => (pg.on!==undefined) ? pg.on : pg.views.includes(v);
-  const top = sec.pages.map(pg=>`<button type="button" class="adm-t2${isOn(pg)?' active':''}" ${qon('click', navClick(pg.js))}>${escH(pg.label)}${pg.count?` <span class="tab-count">${pg.count}</span>`:''}</button>`).join('');
-  const nav = document.createElement('div'); nav.className='adm-nav2 no-print'; nav.dataset.gn='1';
-  nav.innerHTML = `<div class="adm-tabs2">${top}</div><div id="secTabs"></div>`;
-  app.insertBefore(nav, app.firstChild);
+  mk(sec.pages.map(pg=>`<button type="button" class="adm-t2${isOn(pg)?' active':''}" ${qon('click', navClick(pg.js))}>${escH(pg.label)}${pg.count?` <span class="tab-count">${pg.count}</span>`:''}</button>`).join(''), '');
+}
+// الصف الفاتح بلا أجزاء: يحمل سطر التعريف بالصفحة (أو ملاحظتها، كملاحظة المعاينة) بدل أن يبقى فارغاً أو يختفي
+function viewNote(){
+  const v = state.view;
+  if(v==='detail'){
+    const r = state.requests.find(x=>x.id===state.activeReqId);
+    return r ? `الطلب <bdi>${escH(r.number||'قيد المراجعة')}</bdi>: تفاصيله ومراحل اعتماده. «معاينة الطلب» تعرضه كما سيُطبع.` : 'تفاصيل الطلب ومراحل اعتماده.';
+  }
+  if(v==='newRequest') return state.editingReqId ? 'عدّل بيانات الطلب ثم اضغط «حفظ التعديلات».' : 'اكتب عنوان الطلب واختر البند وأضف المستفيدين، ثم اضغط «إرسال للاعتماد».';
+  if(v==='newRequestChoice') return 'ابدأ طلباً جديداً فارغاً أو انسخ طلباً سابقاً.';
+  if(v==='duplicateList') return 'اختر الطلب الذي تريد نسخه طلباً جديداً.';
+  if(v==='oldRequests') return 'طلباتك في شركات لم تعد مرتبطاً بها، للمتابعة فقط.';
+  if(v==='dashboard') return state.dashStatusFilter==='mypending' ? 'الطلبات التي تنتظر قرارك الآن. اضغط أي طلب لفتحه واتخاذ قرارك.' : 'كل طلبات الصرف التي تخصك وحالة كل منها. اضغط أي طلب لفتحه.';
+  if(v==='monitor') return 'ما يحدث في الشركة الآن: من ينتظر قراره، وما في يد المالية، وآخر الحركات.';
+  if(v==='securityLog') return 'تنبيهات الحماية وأخطاء الواجهة ومحاولات الدخول، وما روجع منها.';
+  return '';
+}
+function fillSecNote(){
+  const host = document.getElementById('secTabs'), app = document.getElementById('app');
+  if(!host || !app || host.children.length) return;           // فيه أجزاء الصفحة أو ملاحظتها
+  // سطر التعريف هو أول ما بعد الصفّين (يُتخطّى العنوان المنقول للشريط العلوي وزر الرجوع)، لا أي ملاحظة في وسط الصفحة
+  const nv = host.closest('.adm-nav2');
+  let e = nv ? nv.nextElementSibling : null;
+  while(e && (e.tagName==='H1' || e.classList.contains('adm-head') || e.classList.contains('back-link'))) e = e.nextElementSibling;
+  const p = (e && e.tagName==='P' && e.classList.contains('sub')) ? e : null;
+  const note = document.createElement('div'); note.className = 'sec-note';
+  if(p){ while(p.firstChild) note.appendChild(p.firstChild); p.remove(); note.dataset.moved = '1'; }
+  else { note.innerHTML = viewNote() || '&nbsp;'; }
+  host.appendChild(note);
 }
 function setAccountSec(i){
   state.accountSec = i;
@@ -2996,9 +3125,11 @@ async function attemptLogin(){
       email: loginEmail, password: pass
     });
     if(error || !data?.user){
-      qyLog('login_failed', (error && error.message) || 'بيانات غير صحيحة', '', idInput);
       let suspendedAcc = !!(error && (error.code==='user_banned' || /banned/i.test(error.message||'')));
       if(!suspendedAcc && error){ try{ const sr = await db.rpc('qy_login_suspended', {p_email: loginEmail}); suspendedAcc = sr && sr.data===true; }catch(e){} }
+      // الحساب الموقوف ليس «دخولاً فاشلاً»: يُسجَّل بنوعه حتى لا يختلط بمحاولات كلمة المرور الخاطئة
+      if(suspendedAcc) qyLog('login_suspended', 'محاولة دخول بحساب موقوف', '', idInput);
+      else qyLog('login_failed', (error && error.message) || 'بيانات غير صحيحة', '', idInput);
       if(suspendedAcc){
         qyBodyModal(`<div class="modal-box" style="max-width:min(94vw,460px);text-align:center;"><h2 style="margin-top:0;color:#b42318;"><span style="font-size:.7em;">⛔</span> حسابك موقوف <span style="font-size:.7em;">⛔</span></h2><p style="line-height:1.9;"><b style="font-size:18px;">🤍 شكراً لك 🤍</b><br>على ما قدّمته للشركة خلال فترة عملك معنا.<br>سنسعد بعودتك في أي وقت، وللعودة تواصل مع الإدارة لإعادة تفعيل حسابك.</p><div class="actions-row" style="justify-content:center;"><button class="btn btn-primary btn-md" data-on-click="qyBodyModalClose" data-on-click-args="${qa(["banned"])}">حسناً</button></div></div>`, 'banned');
         return;
@@ -3033,6 +3164,7 @@ async function finishLogin(authUid){
     return;
   }
   if(user.isSuspended){
+    qyLog('login_suspended', 'محاولة دخول بحساب موقوف', '', user.phone||'');
     await db.auth.signOut();
     showToast('هذا الحساب موقوف — راجع مدير النظام','error');
     return;
@@ -3760,16 +3892,19 @@ async function submitDraftInner(){
   const d = state.draft;
   const reasonInput = d.reason.trim();
   const detailedReasonInput = (d.detailedReason||'').trim();
-  if(!reasonInput){ showToast('الرجاء إدخال عنوان الطلب','error'); return; }
+  if(!reasonInput){ fieldErr('#reasonInput', 'الرجاء إدخال عنوان الطلب'); return; }
   // «بند غير محدد» يُخزَّن NULL ويمرّ — الصرف هو ما يتوقف لاحقاً لا الإرسال
   const rawBudget = d.budgetItemId || '';
-  if(!rawBudget){ showToast('الرجاء اختيار بند الميزانية، أو «بند غير محدد» إن لم يناسبك أيٌّ منها','error'); return; }
+  if(!rawBudget){ fieldErr('#budgetItemSelect', 'الرجاء اختيار بند الميزانية، أو «بند غير محدد» إن لم يناسبك أيٌّ منها'); return; }
   const budgetItemId = (rawBudget === UNSPECIFIED_BUDGET) ? null : rawBudget;
   const beneficiaries = [];
   let hasInvalidAmount = false;
   let missingStatement = false;
   let badDeduction = false;
-  d.beneficiaries.forEach(b=>{
+  // أول مستفيد فيه الخطأ، ليذهب المؤشر إلى حقله
+  const benBlock = i => document.querySelectorAll('#beneficiaryList .beneficiary-block')[i] || document;
+  let badAmtAt = -1, badDedAt = -1, badDedCls = '.b-deduction', noStmtAt = -1;
+  d.beneficiaries.forEach((b, bi)=>{
     const name = (b.name||'').trim();
     if(!name) return;
     // الدينار بثلاث خانات (فلس): يُقرَّب كل مبلغ حتى لا تتراكم كسور الحساب العشري في المجاميع
@@ -3777,9 +3912,9 @@ async function submitDraftInner(){
     const amount = r3(parseFloat(b.amount));
     const deduction = r3(parseFloat(b.deduction) || 0);
     const extra = r3(parseFloat(b.extra) || 0);
-    if(isNaN(amount) || amount<=0){ hasInvalidAmount = true; }
-    if(deduction < 0 || deduction > amount || extra < 0){ badDeduction = true; }
-    if(!(b.statement||'').trim()){ missingStatement = true; }
+    if(isNaN(amount) || amount<=0){ hasInvalidAmount = true; if(badAmtAt<0) badAmtAt = bi; }
+    if(deduction < 0 || deduction > amount || extra < 0){ badDeduction = true; if(badDedAt<0){ badDedAt = bi; badDedCls = (extra < 0 && !(deduction < 0 || deduction > amount)) ? '.b-extra' : '.b-deduction'; } }
+    if(!(b.statement||'').trim()){ missingStatement = true; if(noStmtAt<0) noStmtAt = bi; }
     beneficiaries.push({
       name, nameEn:(b.nameEn||'').trim(), iban:(b.iban||'').trim(), civilId:(b.civilId||'').trim(),
       statement:(b.statement||'').trim(), notes:(b.notes||'').trim(),
@@ -3790,10 +3925,10 @@ async function submitDraftInner(){
       _bankFileName: b.bankFileName||'', _bankFileData: b.bankFileData||''
     });
   });
-  if(beneficiaries.length===0){ showToast('الرجاء إدخال بيانات مستفيد واحد على الأقل','error'); return; }
-  if(hasInvalidAmount){ showToast('الرجاء إدخال مبلغ صحيح لكل مستفيد','error'); return; }
-  if(badDeduction){ showToast('قيمة الخصم أو الإضافي غير صحيحة (لا سالب، والخصم لا يتجاوز المبلغ)','error'); return; }
-  if(missingStatement){ showToast('حقل البيان إلزامي لكل مستفيد','error'); return; }
+  if(beneficiaries.length===0){ fieldErr(document.querySelector('#beneficiaryList .b-name'), 'الرجاء إدخال بيانات مستفيد واحد على الأقل'); return; }
+  if(hasInvalidAmount){ fieldErr(benBlock(badAmtAt).querySelector('.b-amount'), 'الرجاء إدخال مبلغ صحيح لكل مستفيد (المستفيد رقم '+(badAmtAt+1)+')'); return; }
+  if(badDeduction){ fieldErr(benBlock(badDedAt).querySelector(badDedCls), 'قيمة الخصم أو الإضافي غير صحيحة (لا سالب، والخصم لا يتجاوز المبلغ) — المستفيد رقم '+(badDedAt+1)); return; }
+  if(missingStatement){ fieldErr(benBlock(noStmtAt).querySelector('.b-statement'), 'حقل البيان إلزامي لكل مستفيد (المستفيد رقم '+(noStmtAt+1)+')'); return; }
 
   // المستفيد المسجّل: غير المالية لا يغيّر آيبانه أو رقمه المدني؛ المختلف يُحفظ لهذا الطلب فقط مع ملحوظة وتنبيه للمالية
   const normIban = v => String(v||'').replace(/\s+/g,'').toUpperCase();
@@ -4254,8 +4389,8 @@ async function approve(req){
     return;
   }
   if(req.status==='pending_transfer_request' && isUnspecifiedBudget(req.budgetItemId)){
-    showToast('حدّد بند الميزانية أولاً من بطاقة «بند غير محدد» أعلى الطلب، ثم سجّل التحويل','error');
-    return;
+    fieldErr(document.getElementById('assignBudgetSel'), 'حدّد بند الميزانية أولاً من بطاقة «بند غير محدد» أعلى الطلب، ثم سجّل التحويل');
+    return false;
   }
   if(state.user.role==='accountant' && req.status==='pending_transfer_request'){
     const center = req.centerId ? state.centers.find(c=>c.id===req.centerId) : null;
@@ -4368,7 +4503,7 @@ async function assignBudgetItem(reqId){
   const sel = document.getElementById('assignBudgetSel');
   if(!req || !sel) return;
   const itemId = sel.value;
-  if(!itemId){ showToast('اختر البند أولاً','error'); return; }
+  if(!itemId){ fieldErr(sel, 'اختر البند أولاً'); return; }
   const bi = (state.budgetItems||[]).find(b=>b.id===itemId);
 
   const r = await db.from('requests').update({budget_item_id: itemId}).eq('id', reqId);
@@ -4383,8 +4518,8 @@ async function assignBudgetItem(reqId){
 async function markDisbursed(req){
   // الصمام يُغلق هنا: لا صرف قبل إسناد الطلب إلى بند ميزانية حقيقي
   if(isUnspecifiedBudget(req.budgetItemId)){
-    showToast('لا يمكن إتمام الصرف: الطلب على «بند غير محدد». أسنده إلى بند من بطاقة الطلب أولاً','error');
-    return;
+    fieldErr(document.getElementById('assignBudgetSel'), 'لا يمكن إتمام الصرف: الطلب على «بند غير محدد». أسنده إلى بند من بطاقة الطلب أولاً');
+    return false;
   }
   // الحركة تُسجَّل في الدفتر أولاً. فإن تعذّر تسجيلها لا يُعلَّم الطلب مصروفاً،
   // لئلا يخرج المال من الواقع ولا يظهر في الدفتر.
@@ -5814,6 +5949,7 @@ function render(){
   renderMobileTabs();
   ensureBottomBar();
   scrollActiveTabIntoView();
+  reapplyFieldErr();
   refreshNotifIndicators();
   navApplyPadding(); fitNavBleed(); requestAnimationFrame(()=>{ navApplyPadding(); fitNavBleed(); });
   maybeCheckDeadlines();
@@ -5943,6 +6079,26 @@ function applyPageWidth(){
   const w = getPageWidth();
   app.style.maxWidth = w>0 ? (w + 'px') : 'none';
   setBox(w>0 ? (w + 'px') : '100%');
+}
+// حسابي ← الأصوات: صوت الإشعارات (بدرجاته) وصوتا رسائل الخطأ والنجاح. يُحفظ فوراً في هذا الجهاز بلا زر حفظ
+function soundsCardHtml(){
+  const lv = notifLevel();
+  const row = (label, ctl, test, hint)=>`<div class="snd-row"><div class="snd-lab"><b>${label}</b><div class="file-hint">${hint}</div></div>${ctl}<button type="button" class="btn btn-ghost btn-sm" data-on-click="${test[0]}" data-on-click-args="${qa(test[1])}" title="يُسمعك الصوت الآن">▶ تجربة</button></div>`;
+  const sw = k=>`<label class="snd-sw"><input type="checkbox" style="width:auto;" ${toastSoundOn(k)?'checked':''} data-on-change="setToastSound" data-on-change-args="${qa([k, QA.c])}"> ${toastSoundOn(k)?'مُفعَّل':'متوقف'}</label>`;
+  return `
+    <div class="card flow">
+      <h2 style="margin:0 0 4px;font-size:15px;">الأصوات</h2>
+      <p class="file-hint" style="margin:0 0 8px;">تُحفظ فوراً في هذا الجهاز، بلا زر حفظ.</p>
+      ${row('صوت الإشعارات', `<select style="--fw:180px;" data-on-change="setNotifLevel" data-on-change-args="${qa([QA.v])}">${[3,2,1,0].map(v=>`<option value="${v}" ${v===lv?'selected':''}>${NOTIF_LEVELS[v].ico} ${NOTIF_LEVELS[v].name}</option>`).join('')}</select>`, ['playNotifSound', []], 'عند وصول إشعار جديد في الجرس')}
+      ${row('صوت رسائل الخطأ', sw('err'), ['playToastSound', ['err', true]], 'نغمة هابطة عند ظهور رسالة خطأ (حقل ناقص أو إجراء مرفوض)')}
+      ${row('صوت رسائل النجاح', sw('ok'), ['playToastSound', ['ok', true]], 'نغمة صاعدة عند نجاح الحفظ أو الإرسال أو الاعتماد')}
+    </div>`;
+}
+function setNotifLevel(v){
+  _notifLevel = Math.max(0, Math.min(3, Number(v)||0));
+  try{ localStorage.setItem('qayam_notif_vol', String(_notifLevel)); }catch(e){}
+  if(_notifLevel>0) playNotifSound();
+  try{ renderBellPanel(); }catch(e){}
 }
 function pageWidthFieldHtml(){
   const cur = getPageWidth();
@@ -6750,6 +6906,7 @@ function renderAccount(app){
 
     </div>
     ${pageWidthFieldHtml()}
+    ${soundsCardHtml()}
     <div class="card">
       <h2 style="margin:0 0 4px;font-size:15px;">الأمان</h2>
       <p class="file-hint" style="margin:0 0 6px;">كلمة المرور ومهلة إغلاق الدخول وإنهاء الجلسات. يُحفظ ما تغيّره هنا بزر «حفظ» أسفل الصفحة.</p>
@@ -8070,9 +8227,14 @@ function setPageSec(key, i){
   state.pageSec[key] = i;
   render(); window.scrollTo(0,0);
 }
-function applyPageSections(){
+function applyPageSections(){ applyPageSectionsInner(); fillSecNote(); }
+function applyPageSectionsInner(){
   const host = document.getElementById('secTabs');
-  if(host && !host.dataset.keep) host.innerHTML = '';
+  if(host && !host.dataset.keep){
+    const note = host.querySelector('.sec-note');
+    if(note && note.dataset.moved){ const p = document.createElement('p'); p.className = 'sub page-intro'; while(note.firstChild) p.appendChild(note.firstChild); const nv = host.closest('.adm-nav2'); if(nv) nv.after(p); }
+    host.innerHTML = '';
+  }
   const app = document.getElementById('app'); if(!app) return;
 
   // صفحة بنت صفَّها الفاتح بنفسها (التحليلات، الهيكل، التقرير): انقله إلى داخل
@@ -13030,10 +13192,11 @@ function wrapBusy(name){
     if(_busyLocks[name]) return;                       // ضغطة ثانية أثناء التنفيذ: تُتجاهل
     const btn = clickedButton();
     _busyLocks[name] = true; setBtnBusy(btn, true);
+    const err0 = _qyErrCount;                        // ✓ الأخضر للنجاح فقط: إن ظهرت رسالة خطأ أثناء العمل فلا علامة
     let res;
     try{ res = orig.apply(this, args); }
     catch(e){ _busyLocks[name] = false; setBtnBusy(btn, false); throw e; }
-    Promise.resolve(res).then(()=>{ _busyLocks[name] = false; setBtnBusy(btn, false, true); },
+    Promise.resolve(res).then(v=>{ _busyLocks[name] = false; setBtnBusy(btn, false, _qyErrCount===err0 && v!==false); },
                               ()=>{ _busyLocks[name] = false; setBtnBusy(btn, false); });
     return res;
   };
