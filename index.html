@@ -135,6 +135,7 @@
   .nav-subcat{font-size:11px;font-weight:700;color:#7f93a8;margin:4px 14px 0;line-height:1.5;}
   .admin-nav-item{display:block;padding:7px 12px 7px 8px;margin:1px 0;line-height:1.5;border-radius:7px;cursor:pointer;font-size:13.5px;color:#cfd8e3;margin-right:18px;border-right:3px solid transparent;}
   .admin-nav-item .nav-count{float:left;margin:2px 0 0;}
+  .tab-count{display:inline-block;min-width:18px;padding:0 6px;border-radius:9px;background:#D4AF37;color:#1B2733;font-size:11px;font-weight:700;line-height:18px;margin-right:4px;text-align:center;}
   .admin-nav-item:hover{background:rgba(255,255,255,.08);color:#fff;}
   .admin-nav-item.active{background:rgba(255,255,255,.13);color:#fff;font-weight:600;border-right-color:#D4AF37;}
   .app-nav[data-mode="collapsed"] .nav-label, .app-nav[data-mode="collapsed"] .nav-title, .app-nav[data-mode="collapsed"] .nav-caret,
@@ -321,6 +322,11 @@
   .page-intro{margin:12px 0 14px;font-size:13.5px;color:var(--muted);}
   .tb-page::before{content:'›';color:rgba(255,255,255,.5);margin-left:10px;}
   .brand-co-group .brand-sub{font-size:17px;font-weight:700;color:#fff;}
+  /* الشركة في السطر الأول، والمركز تحتها بخط أصغر — بلا اقتطاع على الحاسوب */
+  .brand-co-group .brand-sub{display:flex;flex-direction:column;justify-content:center;max-width:none;overflow:visible;line-height:1.2;}
+  .brand-sub .bs-co{white-space:nowrap;}
+  .brand-sub .bs-center{font-size:12.5px;font-weight:400;color:#9FC2DB;white-space:nowrap;margin-top:2px;}
+  @media (max-width:1000px){ .brand-co-group .brand-sub{font-size:14px;} .brand-sub .bs-center{font-size:11.5px;} }
   .brand-name{font-weight:700;}
   /* صفّا التبويب: مسافة صغيرة تحت الشريط العلوي، وعرضهما بعرض الصفحة كالشريط العلوي */
   .adm-nav2,.adm-subs-solo{top:var(--topbar-h,56px);box-shadow:none;border:1px solid #BFD0DE;}
@@ -442,6 +448,14 @@
   .gfb-contact-numbers a{font-size:11px;color:#fff;text-decoration:none;direction:ltr;text-align:left;}
   .gfb-contact-numbers a:hover{color:#9FC2DB;}
   .sticky-total{font-weight:700;font-size:15px;color:#fff;white-space:nowrap;margin-left:6px;}
+  /* إجمالي الطلب في أقصى يسار الشريط السفلي: الأزرار لا تتحرك حين يكبر الرقم، والعين تجده في مكانه دائماً */
+  .sticky-total-end{margin-right:auto;margin-left:20px;min-width:170px;text-align:left;flex:0 0 auto;}
+  /* حقل نصي بسطر واحد يطول مع الكتابة */
+  textarea.grow-1{min-height:40px;height:40px;resize:none;overflow:hidden;line-height:1.4;padding-top:9px;padding-bottom:9px;}
+  /* «هل يتكرر» بجوار «بند الميزانية»: نفس السطر ونفس الارتفاع */
+  .row > .recurring-cell{--fw:380px;}
+  .recurring-cell .check-line{display:flex;align-items:center;gap:8px;height:40px;margin:0;font-weight:400;cursor:pointer;}
+  .req-num-note{font-size:12.5px;color:var(--muted,#64748b);}
   .list-item{
     display:flex;justify-content:space-between;align-items:center;gap:12px;
     padding:16px;border:2px solid var(--line);border-radius:8px;margin-bottom:10px;background:var(--card);
@@ -1194,6 +1208,7 @@
     .brand-co-group{display:flex;min-width:0;flex:0 1 auto;}   /* اسم الشركة يبقى ظاهراً ويُقتطع عند الضيق */
     .brand-co-group .brand-slot{display:none;}
     .brand-co-group .brand-sub{font-size:11.5px;max-width:34vw;}
+    .brand-co-group .brand-sub{overflow:hidden;} .brand-sub .bs-co,.brand-sub .bs-center{overflow:hidden;text-overflow:ellipsis;} .brand-sub .bs-center{font-size:10px;margin-top:1px;}
     .topbar:has(.tb-company) .brand-co-group{display:none;}   /* من عنده قائمة شركات يراها فيها */
     .tb-tools{flex:0 0 auto;gap:4px;min-width:0;}
     .tb-impersonate{display:none;}            /* أداة مراجعة، مكانها الحاسوب */
@@ -1224,10 +1239,10 @@
     .adm-tabs2 .adm-t2{flex:0 0 auto;}
   }
 </style>
-<style>#testBanner{position:fixed;top:0;right:0;left:0;z-index:99999;background:#c2410c;color:#fff;text-align:center;font:700 13px/26px sans-serif;height:26px;pointer-events:none}</style>
+<style>#testBanner{position:fixed;left:10px;bottom:64px;z-index:99999;background:rgba(194,65,12,.72);color:#fff;font:700 11.5px/22px sans-serif;height:22px;padding:0 10px;border-radius:11px;pointer-events:none;box-shadow:0 2px 6px rgba(0,0,0,.18)}@media print{#testBanner{display:none}}</style>
 </head>
 <body>
-<div id="testBanner">⚠ نظام تجريبي — بيانات وهمية للتجربة فقط، ليس النظام الحقيقي</div>
+<div id="testBanner" title="نسخة تجريبية ببيانات وهمية">⚠ نسخة تجريبية</div>
 <div class="topbar">
   <button type="button" class="nav-hamburger no-print" id="navHamburger" data-on-click="openNavDrawer" title="القائمة">☰</button>
   <div class="brand" id="brandBox"><div class="brand-row"><span class="brand-name">نظام طلبات الصرف</span></div></div>
@@ -1245,6 +1260,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.0.3/qrcode.min.js"></script>
-<script src="app.js?v=0904c9d40e"></script>
+<script src="app.js?v=e8153690d3"></script>
 </body>
 </html>

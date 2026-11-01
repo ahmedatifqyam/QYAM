@@ -835,7 +835,7 @@ function renderBrand(){
   box.innerHTML = `
     <div class="brand-group">${slot(systemLogo(),'brand-logo','أضف شعار النظام')}<span class="brand-name" title="${escH(sysName)}">${escH(sysName)}</span></div>
     ${coText || coLogoSrc ? `<span class="brand-sep"></span>
-    <div class="brand-group brand-co-group">${slot(coLogoSrc,'brand-cologo','أضف شعار الشركة')}<span class="brand-sub" title="${escH(coText)}"><span>${escH(coText)}</span></span></div>` : ''}
+    <div class="brand-group brand-co-group">${slot(coLogoSrc,'brand-cologo','أضف شعار الشركة')}<span class="brand-sub" title="${escH(coText)}"><span class="bs-co">${escH(co||'')}</span>${center ? `<span class="bs-center">${escH(center)}</span>` : ''}</span></div>` : ''}
     <span class="tb-page" id="tbPage"></span>`;
   syncPageTitle();
 }
@@ -1015,7 +1015,7 @@ function computeNotifications(){
   getMyPendingRequests().forEach(r=>{
     const ts = lastEventAt(r);
     items.push({key:'p:'+r.id, kind:'pending', reqId:r.id, number:r.number, ts, isNew:(ts>seen || isFreshKey('p:'+r.id)), overdue:isOverdueFor(r, me),
-      title:'طلب بانتظار اعتمادك', sub:r.number+' — '+r.reason+' — '+fmtKWD(r.totalAmount)+' د.ك — من '+r.createdBy});
+      title:'طلب بانتظار اعتمادك', sub:r.number+' — '+r.reason+' — '+fmtKWDPlain(r.totalAmount)+' — من '+r.createdBy});
   });
   const horizon = Date.now() - 30*86400000;
   state.requests.filter(r=>r.companyId===state.currentCompanyId && r.createdById===me && !r.isCancelled).forEach(r=>{
@@ -1827,7 +1827,7 @@ async function renderVerifyPage(reqId){
             <span style="font-weight:600;font-size:13px;">${esc(h.actor)}</span>
             ${stepName ? `<span style="font-size:11px;color:var(--muted);margin-right:6px;">· ${esc(stepName)}</span>` : ''}
           </div>
-          <div style="font-size:11px;color:var(--muted);text-align:left;direction:ltr;white-space:nowrap;flex-shrink:0;">${esc(toWesternDigits(h.time||''))}</div>
+          <div style="font-size:11px;color:var(--muted);text-align:left;direction:rtl;white-space:nowrap;flex-shrink:0;">${esc(toWesternDigits(h.time||''))}</div>
         </div>`;
     }).join('');
 
@@ -1847,7 +1847,7 @@ async function renderVerifyPage(reqId){
           ${stepLabel ? `<span style="font-size:11px;color:var(--muted);"> · ${esc(stepLabel)}</span>` : ''}
           ${h.note ? `<div style="font-size:10.5px;color:var(--muted);font-style:italic;margin-top:2px;">${esc(h.note)}</div>` : ''}
         </div>
-        <div style="font-size:11px;color:var(--muted);text-align:left;direction:ltr;white-space:nowrap;flex-shrink:0;">${esc(toWesternDigits(h.time||''))}</div>
+        <div style="font-size:11px;color:var(--muted);text-align:left;direction:rtl;white-space:nowrap;flex-shrink:0;">${esc(toWesternDigits(h.time||''))}</div>
       </div>`;
     }).join('');
 
@@ -2295,7 +2295,7 @@ function isCustomRole(role){
   return !['employee','dept_manager','senior_manager','executive_manager','accountant','cfo','admin'].includes(role);
 }
 
-const ADMIN_AREA_VIEWS = ['admin','orgTree','jobLevels','analytics','cancelledArchive','ledger','sigDesigner','barSettings','securityLog','verifySettings','pathCheck'];
+const ADMIN_AREA_VIEWS = ['admin','orgTree','jobLevels','cancelledArchive','sigDesigner','barSettings','securityLog','verifySettings','pathCheck'];
 function inAdminArea(){ return !!state.user && state.user.role==='admin' && ADMIN_AREA_VIEWS.includes(state.view); }
 
 // ===================== صلاحيات الصفحات: من يرى أي صفحة وماذا يفعل فيها =====================
@@ -2304,6 +2304,7 @@ const PAGE_LEVELS = [['none','لا يرى'],['read','قراءة فقط'],['edit'
 const PAGE_LEVEL_RANK = {none:0, read:1, edit:2, full:3};
 const PAGE_CATALOG = [
   {key:'newreq',    label:'طلب صرف جديد',     hint:'من يستطيع إنشاء طلب صرف'},
+  {key:'editreq',   label:'تعديل طلباتي',     hint:'تعديل طلب أرسله المستخدم وما زال مفتوحاً للتعديل (قبل أول اعتماد أو بعد إرجاعه). لا يرى أو قراءة: يرى طلبه ولا يعدّله · تعديل أو تحكم كامل: يعدّله'},
   {key:'revenues',  label:'الإيرادات',         hint:'قراءة: يرى · تعديل: يرد الإيراد · تحكم كامل: يسجّل ويحذف'},
   {key:'recurring', label:'القيود الدورية',    hint:'قراءة: يرى · تعديل: يرحّل ويتخطّى ويعدّل · تحكم كامل: ينشئ القوالب ويحذفها'},
   {key:'ledger',    label:'دفتر الحركات',      hint:'قراءة: يرى · تعديل: يعكس ويسترد · تحكم كامل: قيد يدوي'},
@@ -2315,7 +2316,7 @@ const PAGE_FINANCE_ROLES = ['admin','accountant','cfo'];
 function pageDefaultLevel(role, key){
   if(role==='admin') return 'full';
   const fin = PAGE_FINANCE_ROLES.includes(role);
-  if(key==='newreq' || key==='analytics') return 'full';          // الوضع الحالي: الجميع
+  if(key==='newreq' || key==='editreq' || key==='analytics') return 'full';          // الوضع الحالي: الجميع
   if(key==='revenues' || key==='ledger' || key==='recurring') return fin ? 'full' : 'none';
   if(key==='handovers') return role==='employee' ? 'none' : 'full';
   if(key==='monitor') return fin ? 'full' : 'none';                  // المالية افتراضياً، ومن يُمنح من صفحة الصلاحيات   // الإسناد للمعتمِدين والمالية؛ الموظف بلا معاملات يعتمدها
@@ -2346,6 +2347,7 @@ function pageAtLeast(key, need){ return PAGE_LEVEL_RANK[pageLevel(key)] >= PAGE_
 const VIEW_PAGE_KEY = {newRequest:'newreq', newRequestChoice:'newreq', analytics:'analytics', revenues:'revenues', recurring:'recurring', ledger:'ledger'};
 function viewAllowed(v){
   const u = state.user; if(!u || u.role==='admin') return true;
+  if(v==='newRequest' && state.editingReqId) return pageLevel('editreq')!=='none';   // التعديل له صلاحيته الخاصة
   const k = VIEW_PAGE_KEY[v];
   return !k || pageLevel(k)!=='none';
 }
@@ -2492,37 +2494,6 @@ function navPeekOpen(){ state.navPeek = true; renderAppNav(); }
 function qyRunJs(tok){ qrun(tok, document.body, new Event('click')); }
 function navClick(tok){ return qhs([["#3",[]]], tok); }
 // ───────── مجموعات التنقل: صف علوي للمجموعة وصف سفلي لما تحتها ─────────
-function groupNavSets(){
-  const u = state.user; if(!u) return [];
-  const go = tok => qhs([["#3",[]]], tok);
-  const v = state.view;
-  const sets = [];
-  // المعاملات المالية: الصرف | الإيراد | القيود الدورية
-  const expSubs = [{label:'الطلبات', active:['dashboard','detail','duplicateList'].includes(v), js:go([["#4",[]]])}];
-  expSubs.push({label:'طلب جديد', active:['newRequest','newRequestChoice'].includes(v), js:go([["#5",[]]])});
-  { const nOld = (typeof oldCoReqList==='function') ? oldCoReqList().length : 0;
-    if(nOld) expSubs.push({label:'طلباتي في شركات أخرى ('+nOld+')', active:v==='oldRequests', js:go([["openOldRequests",[]]])}); }
-  const fin = [{key:'expense', label:'الصرف', views:['dashboard','detail','duplicateList','newRequest','newRequestChoice','oldRequests'], js:go([["#4",[]]]), subs:expSubs}];
-  if(canSeeRevenues()) fin.push({key:'revenue', label:'الإيراد', views:['revenues'], js:go([["openRevenues",[0]]])});
-  if(canSeeRecurring()) fin.push({key:'recurring', label:'القيود الدورية', views:['recurring'], js:go([["openRecurring",[0]]])});
-  if(canSeeMonitor()) fin.push({key:'monitor', label:'لوحة المتابعة', views:['monitor'], js:go([["openMonitor",[]]])});
-  sets.push(fin);
-  // التقارير (لغير المدير؛ المدير يراها داخل لوحة التحكم)
-  if(u.role!=='admin'){
-    const rep = [];
-    if(pageLevel('ledger')!=='none') rep.push({key:'ledger', label:'دفتر الحركات', views:['ledger'], js:go([["#6",[]]])});
-    if(pageLevel('analytics')!=='none') rep.push({key:'analytics', label:'التحليلات المالية', views:['analytics'], js:go([["#7",[]]])});
-    if(rep.length) sets.push(rep);
-  }
-  // المساعدة: الدليل | الخريطة | المساعد الذكي (الأخير يفتح نافذة المحادثة ولا يغيّر الصفحة)
-  const help = [
-    {key:'guide', label:'دليل المستخدم', views:['guide'], js:go([["openGuide",[]]])},
-    {key:'sitemap', label:'خريطة الموقع', views:['sitemap'], js:go([["openSiteMap",[]]])}
-  ];
-  if(canSeeAssistant() && ASSISTANT_WEBHOOK) help.push({key:'assistant', label:'المساعد الذكي', views:[], js:go([["openAssistant",[]]])});
-  sets.push(help);
-  return sets;
-}
 function injectGroupNav(){
   const app = document.getElementById('app'); if(!app || !state.user) return;
   app.querySelectorAll(':scope > .adm-nav2[data-gn]').forEach(e=>e.remove());
@@ -2542,13 +2513,12 @@ function injectGroupNav(){
     }
     return;
   }
-  const set = groupNavSets().find(g=>g.some(x=>x.views.includes(v)));
-  if(!set || set.length<1) return;
-  const cur = set.find(x=>x.views.includes(v));
-  const top = set.map(x=>`<button type="button" class="adm-t2${x===cur?' active':''}" ${qon('click', x.js)}>${escH(x.label)}</button>`).join('');
-  const subs = cur.subs && cur.subs.length ? `<div class="adm-subs">${cur.subs.map(b=>`<button type="button" class="adm-sub${b.active?' active':''}" ${qon('click', b.js)}>${escH(b.label)}</button>`).join('')}</div>` : '';
+  const sec = navSections().find(x=>!x.admin && x.pages.some(pg=>pg.views.includes(v)));
+  if(!sec || sec.pages.length<2) return;            // قسم من صفحة واحدة: عنوان الصفحة يكفي
+  const isOn = pg => (pg.on!==undefined) ? pg.on : pg.views.includes(v);
+  const top = sec.pages.map(pg=>`<button type="button" class="adm-t2${isOn(pg)?' active':''}" ${qon('click', navClick(pg.js))}>${escH(pg.label)}${pg.count?` <span class="tab-count">${pg.count}</span>`:''}</button>`).join('');
   const nav = document.createElement('div'); nav.className='adm-nav2 no-print'; nav.dataset.gn='1';
-  nav.innerHTML = `<div class="adm-tabs2">${top}</div><div id="secTabs"${subs?' data-keep="1"':''}>${subs}</div>`;
+  nav.innerHTML = `<div class="adm-tabs2">${top}</div><div id="secTabs"></div>`;
   app.insertBefore(nav, app.firstChild);
 }
 function setAccountSec(i){
@@ -2573,30 +2543,6 @@ function navGroupIsOpen(k){
   return (k in p) ? !!p[k] : (k==='fin');          // المالية مفتوحة لأول زيارة، والمساعدة مطوية
 }
 function navGroupToggle(k){ navGroupSet(k, !navGroupIsOpen(k)); renderAppNav(); }
-function navFinSubs(){
-  const role = state.user.role, subs = [];
-  const pend = (typeof getMyPendingRequests==='function') ? getMyPendingRequests().length : 0;
-  subs.push({label:'الصرف', count:pend, active:['dashboard','detail','newRequest','newRequestChoice','duplicateList','printPreview'].includes(state.view),
-             js:[["#4",[]]]});
-  if(canSeeHandovers()) subs.push({label:'الإسناد', count:(typeof hoMyPendingToMeCount==='function'?hoMyPendingToMeCount():0), active:state.view==='handovers', js:[["openHandovers",[]]]});
-  if(canSeeRevenues()) subs.push({label:'الإيراد', active:state.view==='revenues', js:[["openRevenues",[0]]]});
-  if(canSeeRecurring()) subs.push({label:'القيود الدورية', count:recDueCount(), active:state.view==='recurring', js:[["openRecurring",[0]]]});
-  if(canSeeMonitor()) subs.push({label:'لوحة المتابعة', active:state.view==='monitor', js:[["openMonitor",[]]]});
-  if(role!=='admin' && (pageLevel('ledger')!=='none' || pageLevel('analytics')!=='none')){
-    const toLedger = pageLevel('ledger')!=='none';
-    subs.push({label:'التقارير', active:['ledger','analytics'].includes(state.view),
-               js: toLedger ? [["#6",[]]] : [["#7",[]]]});
-  }
-  return subs;
-}
-function navHelpSubs(){
-  const subs = [
-    {label:'دليل المستخدم', active:state.view==='guide', js:[["#8",[]]]},
-    {label:'خريطة الموقع', active:state.view==='sitemap', js:[["#9",[]]]}
-  ];
-  if(canSeeAssistant() && ASSISTANT_WEBHOOK) subs.push({label:'المساعد الذكي', active:false, js:[["openAssistant",[]]]});
-  return subs;
-}
 // المساعد: بند الشريط والتبويب مفتاح (يفتح ثم يغلق). ويُغلق تلقائياً إذا لم يُكتب فيه شيء
 // عند الانتقال لصفحة أخرى أو بعد دقيقتين من الخمول. وإذا بدأت محادثة فلا يُغلق من تلقائه.
 const ASSISTANT_IDLE_MS = 120000;
@@ -2629,15 +2575,42 @@ async function openAssistant(){
   if(e.target && e.target.closest && e.target.closest('#qyamAssistant')) _astActivity = Date.now();
 }, true));
 setInterval(()=>{ if(Date.now()-_astActivity > ASSISTANT_IDLE_MS) assistantAutoClose(); }, 10000);
-function navTopItems(){
+// ═════ أقسام الموقع ═════
+// الشريط الجانبي يعرض الأقسام فقط، والصف العلوي يعرض صفحات القسم المفتوح فقط: لا تظهر صفحة في المكانين.
+// كل قسم: {key, ico, label, count, pages:[{label, views, js, on?, count?}]}. لوحة التحكم لها رأسها الخاص.
+function navSections(){
   const u = state.user; if(!u) return [];
-  const role = u.role, items = [];
-  items.push({key:'fin', group:'fin', ico:'💰', label:'المعاملات المالية', active: inFinArea(), subs: navFinSubs()});
-  if(role==='admin') items.push({key:'admin', ico:'⚙️', label:'لوحة التحكم', group:'admin', active: inAdminArea()});
-  if(role!=='admin') items.push({key:'account', ico:'👤', label:'حسابي', active: state.view==='account',
-              js: [["#10",[]]]});
-  items.push({key:'help', group:'help', ico:'❓', label:'المساعدة', active: inHelpArea(), subs: navHelpSubs()});
-  return items;
+  const v = state.view, out = [];
+  const pend = (typeof getMyPendingRequests==='function') ? getMyPendingRequests().length : 0;
+  const nOld = (typeof oldCoReqList==='function') ? oldCoReqList().length : 0;
+  const mine = state.dashStatusFilter==='mypending';
+  const req = [{label:'كل الطلبات', views:['dashboard','detail','duplicateList','printPreview'], on: v==='dashboard' ? !mine : ['detail','duplicateList','printPreview'].includes(v), js:[["navGoRequests",[]]]}];
+  if(pend || u.role!=='employee') req.push({label:'بانتظار قراري', count:pend, views:[], on: v==='dashboard' && mine, js:[["navMyPending",[]]]});
+  req.push({label:'طلب صرف جديد', views:['newRequest','newRequestChoice'], js:[["#5",[]]]});
+  if(nOld) req.push({label:'طلباتي في شركات أخرى', count:nOld, views:['oldRequests'], js:[["openOldRequests",[]]]});
+  out.push({key:'req', ico:'📋', label:'طلبات الصرف', count:pend, pages:req});
+  if(canSeeRevenues()) out.push({key:'rev', ico:'💵', label:'الإيرادات', pages:[{label:'الإيرادات', views:['revenues'], js:[["openRevenues",[0]]]}]});
+  if(canSeeRecurring()) out.push({key:'rec', ico:'🔁', label:'القيود الدورية', count:recDueCount(), pages:[{label:'القيود الدورية', views:['recurring'], js:[["openRecurring",[0]]]}]});
+  if(canSeeHandovers()) out.push({key:'ho', ico:'🤝', label:'إسناد المعاملات', count:(typeof hoMyPendingToMeCount==='function' ? hoMyPendingToMeCount() : 0), pages:[{label:'إسناد المعاملات', views:['handovers'], js:[["openHandovers",[]]]}]});
+  const rep = [];
+  if(canSeeMonitor()) rep.push({label:'لوحة المتابعة', views:['monitor'], js:[["openMonitor",[]]]});
+  if(pageLevel('ledger')!=='none') rep.push({label:'دفتر الحركات', views:['ledger'], js:[["#6",[]]]});
+  if(pageLevel('analytics')!=='none') rep.push({label:'التحليلات المالية', views:['analytics'], js:[["#7",[]]]});
+  if(rep.length) out.push({key:'rep', ico:'📊', label:'المتابعة والتقارير', pages:rep});
+  if(u.role==='admin') out.push({key:'admin', ico:'⚙️', label:'لوحة التحكم', admin:true, pages:[]});
+  else out.push({key:'account', ico:'👤', label:'حسابي', pages:[{label:'حسابي', views:['account'], js:[["#10",[]]]}]});
+  const help = [{label:'دليل المستخدم', views:['guide'], js:[["#8",[]]]}, {label:'خريطة الموقع', views:['sitemap'], js:[["#9",[]]]}];
+  if(canSeeAssistant() && ASSISTANT_WEBHOOK) help.push({label:'المساعد الذكي', views:[], js:[["openAssistant",[]]]});
+  out.push({key:'help', ico:'❓', label:'المساعدة', pages:help});
+  out.forEach(sec=>{ sec.active = sec.admin ? inAdminArea() : sec.pages.some(pg=>pg.views.includes(v)); });
+  return out;
+}
+function navGoRequests(){ if(state.dashStatusFilter==='mypending') state.dashStatusFilter = 'all'; state.view = 'dashboard'; render(); window.scrollTo(0,0); }
+function navMyPending(){ state.dashStatusFilter = 'mypending'; state.view = 'dashboard'; render(); window.scrollTo(0,0); }
+function navTopItems(){
+  return navSections().map(sec => sec.admin
+    ? {key:'admin', ico:sec.ico, label:sec.label, group:'admin', active:sec.active}
+    : {key:sec.key, ico:sec.ico, label:sec.label, count:sec.count, active:sec.active, js:sec.pages[0].js, pages:sec.pages});
 }
 // صندوق العمل يبقى بمنتصف الصفحة تماماً ما دام عرضه ≥ 840 بكسل، وإلا يُزاح بالقدر الأدنى اللازم كي لا يتداخل مع الشريط
 // (يُحسب بعد رسم المحتوى لأن ظهور شريط التمرير يغيّر العرض المتاح)
@@ -2706,20 +2679,11 @@ window.addEventListener('resize', ()=>{ clearTimeout(_navResizeT); _navResizeT=s
 // ===================== البحث الموحّد: أقسام الموقع + الطلبات =====================
 function searchSectionIndex(){
   const out = [];
-  navTopItems().forEach(i=>{
-    if(i.group==='admin' || i.head) return;
-    if(i.subs) i.subs.forEach(x=>out.push({label:x.label, sub:i.label, js:x.js}));
-    else out.push({label:i.label, sub:'صفحة', js:i.js});
+  navSections().forEach(sec=>{
+    if(sec.admin) return;
+    sec.pages.forEach(pg=>out.push({label:pg.label, sub:sec.label, js:pg.js}));
   });
-  // أسماء البنود التي دُمجت في الشريط الجانبي تبقى قابلة للبحث
-  out.push({label:'طلبات الصرف', sub:'الصرف', js:[["#12",[]]]});
-  out.push({label:'طلب صرف جديد', sub:'الصرف', js:[["openNewRequestChoice",[]]]});
-  if(canSeeRevenues()){ out.push({label:'الإيرادات', sub:'الإيراد', js:[["openRevenues",[0]]]}); if(pageAtLeast('revenues','full')) out.push({label:'إيراد جديد', sub:'الإيراد', js:[["openRevenues",[1]]]}); }
-  if(state.user && state.user.role!=='admin'){
-    if(pageLevel('ledger')!=='none') out.push({label:'دفتر الحركات', sub:'التقارير', js:[["openLedger",[]]]});
-    if(canSeeMonitor()) out.push({label:'لوحة المتابعة', sub:'التقارير', js:[["openMonitor",[]]]});
-    if(pageLevel('analytics')!=='none') out.push({label:'التحليلات المالية', sub:'التقارير', js:[["openAnalytics",[]]]});
-  }
+  if(canSeeRevenues() && pageAtLeast('revenues','full')) out.push({label:'إيراد جديد', sub:'الإيرادات', js:[["openRevenues",[1]]]});
   if(state.user && state.user.role==='admin'){
     ADMIN_NAV.forEach(g=>g.items.forEach(i=>out.push({label:i.head||i.label, sub:'لوحة التحكم — '+g.cat, js:adminNavAction(i)})));
   }
@@ -3158,6 +3122,21 @@ function newReqBlocked(){
   openNewRequestChoice();
   return true;
 }
+// صلاحية «تعديل طلباتي» مستقلة عن «طلب صرف جديد»: من مُنع التعديل تظهر له رسالة ويبقى في صفحته
+function canEditMyRequests(companyId){
+  const u = state.user; if(!u) return false;
+  if(u.role==='admin') return true;
+  const co = companyId || state.currentCompanyId || u.companyId;
+  return PAGE_LEVEL_RANK[pageLevelFor(u.role, 'editreq', co)] >= PAGE_LEVEL_RANK.edit;
+}
+function editReqBlocked(req){
+  if(canEditMyRequests(req && req.companyId)) return false;
+  qyBodyModal(`<div class="modal-box" style="max-width:min(94vw,440px);text-align:center;">
+      <h2 style="margin-top:0;">تعديل الطلب</h2>
+      <p style="line-height:1.9;">ليست لديك صلاحية «تعديل طلباتي» في هذه الشركة.<br>تستطيع رؤية طلبك ومتابعته، أما تعديله فيحتاج هذه الصلاحية من مدير النظام.</p>
+      <div class="actions-row" style="justify-content:center;"><button class="btn btn-primary btn-md" data-on-click="qyBodyModalClose" data-on-click-args="${qa(["noedit"])}">حسناً</button></div></div>`, 'noedit');
+  return true;
+}
 function openNewRequestChoice(){
   // الزر يبقى ظاهراً للجميع (إخفاؤه يُربك)؛ من مُنع تظهر له رسالة واضحة بدل أن يبحث عنه
   if(pageLevel('newreq')==='none'){
@@ -3240,6 +3219,7 @@ function renderDuplicateList(app){
 function editRequest(id){
   const req = state.requests.find(r=>r.id===id);
   if(!req || !isEditable(req)) return;
+  if(editReqBlocked(req)) return;
   state.editingReqId = id;
   // البند و«هل يتكرر» كانا يسقطان من المسودّة، فيفتح النموذج بلا البند المحفوظ
   state.draft = {
@@ -3653,10 +3633,10 @@ function updateTotalPreview(){
   if(warnEl){
     const warnings = [];
     if(center && center.maxRequestAmount!=null && total > center.maxRequestAmount){
-      warnings.push(`إجمالي الطلب (${fmtKWD(total)} د.ك) يتجاوز الحد الأعلى المحدد لمركزك (${fmtKWD(center.maxRequestAmount)} د.ك)`);
+      warnings.push(`إجمالي الطلب (${fmtKWD(total,{noUnit:true})} د.ك) يتجاوز الحد الأعلى المحدد لمركزك (${fmtKWD(center.maxRequestAmount,{noUnit:true})} د.ك)`);
     }
     if(center && center.maxBeneficiaryAmount!=null && maxBeneAmount > center.maxBeneficiaryAmount){
-      warnings.push(`مبلغ أحد المستفيدين (${fmtKWD(maxBeneAmount)} د.ك) يتجاوز الحد الأعلى المسموح لكل مستفيد (${fmtKWD(center.maxBeneficiaryAmount)} د.ك)`);
+      warnings.push(`مبلغ أحد المستفيدين (${fmtKWD(maxBeneAmount,{noUnit:true})} د.ك) يتجاوز الحد الأعلى المسموح لكل مستفيد (${fmtKWD(center.maxBeneficiaryAmount,{noUnit:true})} د.ك)`);
     }
     hasWarning = warnings.length>0;
     warnEl.innerHTML = hasWarning ? `⚠️ ${warnings.join(' — ')}` : '';
@@ -3719,7 +3699,10 @@ function removeBeneficiaryRow(i){
 }
 
 async function submitDraft(){
-  if(!pageAtLeast('newreq','edit')){ showToast('ليست لديك صلاحية إرسال طلب صرف (قراءة فقط)','error'); return; }
+  if(state.editingReqId){
+    const er = state.requests.find(r=>r.id===state.editingReqId);
+    if(!canEditMyRequests(er && er.companyId)){ editReqBlocked(er); return; }
+  } else if(!pageAtLeast('newreq','edit')){ showToast('ليست لديك صلاحية إرسال طلب صرف (قراءة فقط)','error'); return; }
   if(state.submittingDraft) return;
   state.submittingDraft = true;
   const btns = Array.from(document.querySelectorAll('.submit-draft-trigger'));
@@ -6259,7 +6242,7 @@ function renderAnalytics(app){
     <h1>التحليلات المالية</h1>
     ${analyticsTabsHtml('details')}
     <p class="sub">${scopedToOwnCenter ? 'إجمالي المصروف الفعلي لمركزك' : 'إجمالي المصروف الفعلي لكل المراكز والشركة'} (الطلبات المصروفة فقط)</p>
-    <div class="row" style="max-width:420px;">
+    <div class="filt-bar filt-narrow no-print">
       <div><label>السنة</label>
         <select id="analyticsYear" data-on-change="#54">
           ${yearsList.map(y=>`<option value="${y}" ${y==selYear?'selected':''}>${y}</option>`).join('')}
@@ -6269,6 +6252,9 @@ function renderAnalytics(app){
         <select id="analyticsMonth" data-on-change="#55">
           ${months.map(m=>`<option value="${m.v}" ${m.v==selMonth?'selected':''}>${m.n}</option>`).join('')}
         </select>
+      </div>
+      <div style="flex:0 0 auto;max-width:none;" data-bar-actions data-bar-key="export_csv">
+        <button class="btn btn-ghost btn-md" data-on-click="exportAnalyticsCSV" title="ينزّل جدول هذه الصفحة ملفاً يُفتح في Excel">تصدير Excel (CSV)</button>
       </div>
     </div>
 
@@ -6282,9 +6268,6 @@ function renderAnalytics(app){
       <div class="amount-box" style="margin-top:14px;">
         <span class="amount-num">الإجمالي الكلي: ${fmtKWDHtml(grandTotal)} د.ك</span>
         <span class="amount-words">(${grandCount} طلب مصروف)</span>
-      </div>
-      <div class="actions-row" data-bar-actions data-bar-key="export_csv">
-        <button class="btn btn-ghost btn-lg" data-on-click="exportAnalyticsCSV">تصدير Excel (CSV)</button>
       </div>
     </div>
     ${budgetCardHtml}
@@ -6678,11 +6661,7 @@ function renderAccount(app){
   app.innerHTML = `
     <h1>حسابي — ${escH(findRole(me.role).name)}</h1>
     <p class="sub">${state.returnTo ? 'الرجاء رفع صورة التوقيع والختم أولاً لإكمال اعتماد الطلب.' : 'تحديث بياناتك الشخصية.'}</p>
-    ${canSeeHandovers() ? `    <div class="card flow">
-      <h2 style="margin:0 0 4px;font-size:15px;">إسناد المعاملات</h2>
-      <p class="file-hint" style="margin:0 0 6px;">ستغيب أو تنتقل أو تترك العمل؟ أسند معاملاتك لزميل يعتمدها بدلاً منك.</p>
-      <div class="actions-row"><button class="btn btn-ghost btn-sm" data-on-click="openHandovers">فتح صفحة الإسناد${(typeof hoMyPendingToMeCount==='function' && hoMyPendingToMeCount()) ? ' ('+hoMyPendingToMeCount()+' بانتظارك)' : ''}</button></div>
-    </div>` : ''}
+    <!-- الإسناد له قسمه في الشريط الجانبي؛ لا يتكرر هنا تبويباً -->
 
     <div class="card flow">
       <h2 style="margin:0 0 4px;font-size:15px;">بياناتي</h2>
@@ -7424,6 +7403,14 @@ function ledgerClearDefault(){
   try{ localStorage.removeItem(ledgerDefKey()); }catch(e){}
   showToast('أُلغي الوضع الافتراضي','success'); render();
 }
+// زر واحد للوضع الافتراضي: «اجعله افتراضياً» يحفظ الحالي (ويستبدل القديم إن وُجد)، و«إلغاء الافتراضي» حين يكون الحالي هو المحفوظ
+function ledgerNormFilter(f){ const o = {}; Object.keys(f||{}).sort().forEach(k=>{ const v = f[k]; if(v!=='' && v!=null) o[k] = v; }); return JSON.stringify(o); }
+function ledgerNormSort(x){ const v = x || {key:'date', dir:'asc'}; return (v.key||'date') + '|' + (v.dir||'asc'); }
+function ledgerIsDefault(){
+  const d = ledgerLoadDefault(); if(!d) return false;
+  return ledgerNormFilter(d.filter)===ledgerNormFilter(state.ledgerFilter) && ledgerNormSort(d.sort)===ledgerNormSort(state.ledgerSort);
+}
+function ledgerToggleDefault(){ if(ledgerIsDefault()) ledgerClearDefault(); else ledgerSaveDefault(); }
 function ledgerApplyDefaults(){
   const d = ledgerLoadDefault();
   state.ledgerFilter = (d && d.filter) ? Object.assign({}, d.filter) : {};
@@ -7563,7 +7550,11 @@ function ledgerRows(){
     if(f.dir  && t.direction !== f.dir) return false;
     if(f.cItem && t.budgetItemId !== f.cItem) return false;
     if(f.cSrc && t.sourceType !== f.cSrc) return false;
-    if(f.cDate && String(t.date||'').indexOf(f.cDate) === -1 && fmtDateDMY(t.date).indexOf(f.cDate) === -1) return false;
+    if(f.cDate){
+      const q = String(f.cDate).trim().replace(/[\/.\s]+/g,'-'), raw = String(t.date||'');
+      const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})/), dmy = m ? m[3]+'-'+m[2]+'-'+m[1] : '';
+      if(raw.indexOf(q) === -1 && dmy.indexOf(q) === -1) return false;
+    }
     if(f.cDesc && (t.description||'').toLowerCase().indexOf(f.cDesc.toLowerCase()) === -1) return false;
     if(f.cBene && (t.beneficiary||'').toLowerCase().indexOf(f.cBene.toLowerCase()) === -1) return false;
     if(f.cIn  && !(t.direction==='in'  && t.amount >= Number(f.cIn)))  return false;
@@ -7613,7 +7604,7 @@ function renderLedger(app){
   const totalIn  = rows.filter(t=>t.direction==='in').reduce((s,t)=>s+t.amount,0);
   const totalOut = rows.filter(t=>t.direction==='out').reduce((s,t)=>s+t.amount,0);
   const SEPL = 'border-left:1px solid var(--line);';
-  const hasDef = !!ledgerLoadDefault();
+  const hasDef = !!ledgerLoadDefault(), isDef = ledgerIsDefault();
   const active = ledgerActiveFilters();
 
   const itemOpts = `<option value="">الكل</option>` + items.map(b=>
@@ -7642,7 +7633,7 @@ function renderLedger(app){
       }
     }
     return `<tr style="border-bottom:1px solid var(--line);${strike}">
-      <td style="padding:7px 10px;white-space:nowrap;${SEPL}" dir="ltr">${fmtDateDMY(t.date)}</td>
+      <td style="padding:7px 10px;white-space:nowrap;${SEPL}">${fmtDateDMY(t.date)}</td>
       <td style="padding:7px 10px;${SEPL}">
         ${escH(t.description)}
         ${isRev ? '<span class="badge" style="background:var(--amber-bg);color:var(--amber);font-size:10px;display:inline;padding:1px 6px;">قيد عاكس</span>' : ''}
@@ -7652,17 +7643,17 @@ function renderLedger(app){
       </td>
       <td style="padding:7px 10px;font-size:12px;${SEPL}">${item ? escH(item.name) : '—'}</td>
       <td style="padding:7px 10px;font-size:12px;${SEPL}">${escH(t.beneficiary||'—')}</td>
-      <td style="padding:7px 10px;font-size:12px;color:var(--muted);${SEPL}">${LEDGER_SOURCE_LABELS[t.sourceType]||t.sourceType}</td>
-      <td style="padding:7px 10px;text-align:right;direction:rtl;color:var(--green);${SEPL}">${t.direction==='in'?fmtKWDHtml(t.amount):'—'}</td>
-      <td style="padding:7px 10px;text-align:right;direction:rtl;color:var(--red);${SEPL}">${t.direction==='out'?fmtKWDHtml(t.amount):'—'}</td>
-      <td style="padding:7px 10px;text-align:right;direction:rtl;font-weight:700;${SEPL}">${fmtKWDHtml(t._bal)}</td>
+      <td style="padding:7px 10px;font-size:12px;white-space:nowrap;color:var(--muted);${SEPL}">${LEDGER_SOURCE_LABELS[t.sourceType]||t.sourceType}</td>
+      <td style="padding:7px 10px;text-align:right;direction:rtl;white-space:nowrap;color:var(--green);${SEPL}">${t.direction==='in'?fmtKWDHtml(t.amount):'—'}</td>
+      <td style="padding:7px 10px;text-align:right;direction:rtl;white-space:nowrap;color:var(--red);${SEPL}">${t.direction==='out'?fmtKWDHtml(t.amount):'—'}</td>
+      <td style="padding:7px 10px;text-align:right;direction:rtl;white-space:nowrap;font-weight:700;${SEPL}">${fmtKWDHtml(t._bal)}</td>
       <td style="padding:7px 8px;white-space:nowrap;">${acts.join(' ')||''}</td>
     </tr>`;
   }).join('');
 
   const s = state.ledgerSort;
   const th = (k,l)=>`<th style="padding:9px 10px;text-align:right;font-weight:600;cursor:pointer;white-space:nowrap;" data-on-click="ledgerSortBy" data-on-click-args="${qa([(''+(k))])}" title="ترتيب حسب ${l}">${l}${s.key===k ? (s.dir==='asc'?' ▲':' ▼') : ''}</th>`;
-  const fin = (k, ph, extra)=>`<input type="text" autocomplete="off" value="${escH(f[k]||'')}" placeholder="${ph}" ${extra||''} style="width:100%;min-width:70px;font-size:12px;padding:4px 6px;" data-on-input="#72" data-on-input-args="${qa([(''+(k))])}" data-on-change="render" data-on-keydown="#73">`;
+  const fin = (k, ph, extra)=>`<input type="text" autocomplete="off" value="${escH(f[k]||'')}" placeholder="${ph}" ${extra||''} style="width:100%;min-width:0;max-width:180px;font-size:12px;padding:4px 6px;" data-on-input="#72" data-on-input-args="${qa([(''+(k))])}" data-on-change="render" data-on-keydown="#73">`;
   const describe = k => {
     const v = f[k];
     const shown = k==='dir' ? (v==='in'?'دخول':'خروج') : k==='cItem' ? ((items.find(b=>b.id===v)||{}).name||'') : k==='cSrc' ? (LEDGER_SOURCE_LABELS[v]||v) : v;
@@ -7691,9 +7682,10 @@ function renderLedger(app){
         </select></div>
       <div><label>بحث</label>
         <input type="text" name="qz-ledger-search" autocomplete="off" readonly data-on-focus="#74" placeholder="البيان أو المستفيد" value="${escH(f.q||'')}" data-on-input="#75" data-on-change="render"></div>
+      <div class="lg-filter-btns" style="display:flex;gap:6px;align-items:flex-end;">
       <button class="btn btn-ghost btn-sm" data-on-click="ledgerClearFilters" title="يمسح كل مرشّحات الدفتر الحالية">مسح الترشيح</button>
-      <button class="btn btn-ghost btn-sm" data-on-click="ledgerSaveDefault" title="يحفظ الترشيح والترتيب الحاليين ليُطبَّقا تلقائياً كل مرة تدخل فيها الدفتر">اجعله الافتراضي</button>
-      ${hasDef ? `<button class="btn btn-ghost btn-sm" data-on-click="ledgerClearDefault" title="يلغي الوضع الافتراضي المحفوظ فيدخل الدفتر دون ترشيح">إلغاء الافتراضي</button>` : ''}
+      <button class="btn btn-ghost btn-sm ledger-def-btn" data-on-click="ledgerToggleDefault" title="${isDef ? 'الترشيح والترتيب الحاليان هما الافتراضي: اضغط لإلغائه فيدخل الدفتر دون ترشيح' : hasDef ? 'يستبدل الوضع الافتراضي المحفوظ بالترشيح والترتيب الحاليين' : 'يحفظ الترشيح والترتيب الحاليين ليُطبَّقا تلقائياً كل مرة تدخل فيها الدفتر'}">${isDef ? '✓ إلغاء الافتراضي' : 'اجعله افتراضياً'}</button>
+      </div>
       ${canManualLedger() ? `<span data-bar-actions style="margin-right:auto;"><button class="btn btn-primary btn-sm" data-on-click="openManualEntry" title="تسجيل حركة يدوية لا تنتمي لطلب (تسوية أو رصيد افتتاحي)">+ قيد يدوي</button></span>` : ''}
     </div>
     ${banner}
@@ -7711,18 +7703,23 @@ function renderLedger(app){
     </div>
 
     <div class="card" style="padding:0;overflow:auto;">
-      <table style="width:100%;border-collapse:collapse;font-size:13px;direction:rtl;">
+      <table class="ledger-tbl" style="width:100%;border-collapse:collapse;font-size:13px;direction:rtl;">
+        <colgroup>
+          <!-- أعمدة ثابتة العرض لا تتسع مع الصفحة (والمحتوى بلا التفاف فلا ينقطع المبلغ)، والمساحة الزائدة كلها للبيان والبند والمستفيد -->
+          <col style="width:92px;"><col><col><col><col style="width:96px;">
+          <col style="width:110px;"><col style="width:110px;"><col style="width:120px;"><col style="width:1px;">
+        </colgroup>
         <thead>
         <tr style="background:var(--ink);color:#fff;">
           ${th('date','التاريخ')}${th('desc','البيان')}${th('item','البند')}${th('bene','المستفيد')}${th('src','المصدر')}${th('in','دخول')}${th('out','خروج')}${th('bal','الرصيد')}
           <th style="padding:9px 8px;"></th>
         </tr>
         <tr class="no-print" style="background:var(--paper);">
-          <th style="padding:5px 6px;">${fin('cDate','2026-10','dir="ltr"')}</th>
+          <th style="padding:5px 6px;">${fin('cDate','09-2026')}</th>
           <th style="padding:5px 6px;">${fin('cDesc','بحث في البيان')}</th>
-          <th style="padding:5px 6px;"><select style="width:100%;min-width:90px;font-size:12px;padding:4px 6px;" data-on-change="setLedgerFilter" data-on-change-args="${qa(["cItem", QA.v])}">${itemOpts}</select></th>
+          <th style="padding:5px 6px;"><select style="width:100%;min-width:0;max-width:180px;font-size:12px;padding:4px 6px;" data-on-change="setLedgerFilter" data-on-change-args="${qa(["cItem", QA.v])}">${itemOpts}</select></th>
           <th style="padding:5px 6px;">${fin('cBene','بحث')}</th>
-          <th style="padding:5px 6px;"><select style="width:100%;min-width:80px;font-size:12px;padding:4px 6px;" data-on-change="setLedgerFilter" data-on-change-args="${qa(["cSrc", QA.v])}">${srcOpts}</select></th>
+          <th style="padding:5px 6px;"><select style="width:100%;min-width:0;max-width:180px;font-size:12px;padding:4px 6px;" data-on-change="setLedgerFilter" data-on-change-args="${qa(["cSrc", QA.v])}">${srcOpts}</select></th>
           <th style="padding:5px 6px;">${fin('cIn','من مبلغ','dir="ltr" inputmode="decimal"')}</th>
           <th style="padding:5px 6px;">${fin('cOut','من مبلغ','dir="ltr" inputmode="decimal"')}</th>
           <th style="padding:5px 6px;"></th><th></th>
@@ -7974,8 +7971,6 @@ const ADMIN_NAV = [
   {gkey:'finance', tab:'المالية', cat:'المالية', items:[
     {key:'budgetItems', label:'بنود الميزانية', tab:'البنود', kind:'tab'},
     {key:'budgetReport', label:'تقرير الميزانية', tab:'التقرير', kind:'tab'},
-    {key:'exec', label:'التحليلات واللوحة التنفيذية', tab:'اللوحة التنفيذية', head:'التحليلات المالية واللوحة التنفيذية', kind:'exec'},
-    {key:'ledger', label:'دفتر الحركات', tab:'الدفتر', head:'دفتر الحركات', kind:'view'},
     {key:'cancelledArchive', label:'أرشيف الطلبات الملغاة', tab:'أرشيف الملغاة', kind:'view'}
   ]},
   // ٤ الهوية والمستندات — كيف يبدو النظام على الشاشة وعلى الورق
@@ -8139,7 +8134,7 @@ function buildAdminSidebar(){
 }
 // يلف أي صفحة مستقلة بنفس إطار الشريط الجانبي، فقط لمدير النظام (باقي الأدوار تشوف الصفحة بعرضها الكامل كالمعتاد)
 function wrapWithAdminSidebar(contentHtml){
-  if(!state.user || state.user.role!=='admin') return contentHtml;
+  if(!state.user || state.user.role!=='admin' || !inAdminArea()) return contentHtml;
   // التنقل صار بالشريط الجانبي العام؛ هنا عنوان موحّد + حذف رابط "رجوع" والعنوان الداخلي القديم
   let stripped = contentHtml.replace(/<span class="back-link[^"]*"[^>]*>→ رجوع<\/span>/g, '');
   stripped = stripped.replace(/<h1[^>]*>[\s\S]*?<\/h1>/, '');
@@ -12364,12 +12359,18 @@ function renderNewRequest(app){
     return;
   }
   const d = state.draft;
+  // التعديل له صلاحية «تعديل طلباتي»، والإنشاء له صلاحية «طلب صرف جديد»
+  const editRq = state.editingReqId ? state.requests.find(r=>r.id===state.editingReqId) : null;
+  const canSend = state.editingReqId ? canEditMyRequests(editRq && editRq.companyId) : pageAtLeast('newreq','edit');
+  const noSendTip = state.editingReqId ? 'ليست لديك صلاحية «تعديل طلباتي»' : 'ليست لديك صلاحية الإرسال';
+  const winMin = reviewWindowMinutes();
+  const numNote = d.number ? `رقم الطلب: <b>${escH(String(d.number))}</b>`
+    : (winMin>0 ? `رقم الطلب: يُحدَّد بعد انتهاء نافذة المراجعة (${winMin} ${winMin<=10?'دقائق':'دقيقة'} من الإرسال)` : 'رقم الطلب: يُحدَّد عند الإرسال');
   app.innerHTML = `
     <h1>${state.editingReqId ? 'تعديل الطلب' : 'طلب صرف جديد'}</h1>
     ${(()=>{ const rq = state.editingReqId && state.requests.find(r=>r.id===state.editingReqId); return rq && rq.status==='rejected' ? '<div class="warn-box" style="background:rgba(185,28,28,.10);border-right:4px solid #b91c1c;padding:8px 12px;border-radius:8px;margin:8px 0;"><b>✕ مرفوض</b> — عدّل الطلب ثم أعد إرساله.</div>' : ''; })()}
-    <p class="sub">رقم الطلب: <b>${d.number || 'سيُحدَّد تلقائياً عند الإرسال'}</b></p>
     <div class="card">
-      ${pageAtLeast('newreq','edit') ? '' : '<div class="warn-box" style="background:rgba(180,83,9,.12);border-right:4px solid #b45309;padding:8px 12px;border-radius:8px;margin-bottom:12px;">ليست لديك صلاحية إرسال طلب صرف (صلاحيتك: قراءة فقط). يمكنك الاطلاع على النموذج فقط.</div>'}
+      ${canSend ? '' : `<div class="warn-box" style="background:rgba(180,83,9,.12);border-right:4px solid #b45309;padding:8px 12px;border-radius:8px;margin-bottom:12px;">${state.editingReqId ? 'ليست لديك صلاحية «تعديل طلباتي» (صلاحيتك: قراءة فقط). يمكنك الاطلاع على الطلب فقط.' : 'ليست لديك صلاحية إرسال طلب صرف (صلاحيتك: قراءة فقط). يمكنك الاطلاع على النموذج فقط.'}</div>`}
       <label>عنوان الطلب</label>
       <div class="field-with-btn">
         <input id="reasonInput" style="--fw:580px;" type="text" value="${escH(d.reason||'')}" placeholder="مثال: رواتب شهر 8-2026 أو عهدة">
@@ -12387,17 +12388,11 @@ function renderNewRequest(app){
       </div>
 
       <label style="margin-top:14px;">سبب الطلب التفصيلي (اختياري — يُستخدم بالخطاب الرسمي بدل العنوان)</label>
-      <textarea id="detailedReasonInput" rows="2" placeholder="اتركه فارغاً لاستخدام عنوان الطلب نفسه">${escH(d.detailedReason||'')}</textarea>
+      <textarea id="detailedReasonInput" class="grow-1" rows="1" placeholder="اتركه فارغاً لاستخدام عنوان الطلب نفسه">${escH(d.detailedReason||'')}</textarea>
 
-      <label style="margin-top:14px;">ملاحظات الطلب (اختياري — داخلية لا تُطبع، يراها المعتمدون والمالية)</label>
-      <textarea id="requestNotesInput" rows="2" placeholder="مثال: الفاتورة الأصلية مع المحاسب">${escH(d.requestNotes||'')}</textarea>
-
-      <label style="display:flex;align-items:center;gap:8px;margin-top:14px;">
-        <input id="recurringCheck" type="checkbox" style="width:auto;" ${d.isRecurring ? 'checked' : ''}>
-        هل يتكرر هذا الطلب مستقبلاً؟ (مثل رواتب شهرية أو عهدة متكررة)
-      </label>
-
-      <label style="margin-top:14px;">بند الميزانية <span style="color:var(--red);">*</span></label>
+      <div class="row">
+      <div>
+      <label>بند الميزانية <span style="color:var(--red);">*</span></label>
       <select id="budgetItemSelect" data-on-change="onBudgetItemSelectChange" style="width:100%;">
         <option value="">— اختر البند —</option>
         ${(state.budgetItems||[]).filter(b=>b.company_id===state.currentCompanyId && b.is_active!==false).map(b=>{
@@ -12408,6 +12403,15 @@ function renderNewRequest(app){
         <option value="${UNSPECIFIED_BUDGET}"${(d.budgetItemId===UNSPECIFIED_BUDGET)?' selected':''}>⚠️ بند غير محدد — يُستكمل قبل الصرف</option>
       </select>
       <div id="budgetItemBalanceBox" style="display:none;margin-top:6px;padding:8px 12px;border-radius:8px;font-size:13px;font-weight:600;"></div>
+      </div>
+      <div class="recurring-cell">
+        <label for="recurringCheck">هل يتكرر هذا الطلب؟</label>
+        <label class="check-line" title="مثل رواتب شهرية أو عهدة متكررة">
+          <input id="recurringCheck" type="checkbox" style="width:auto;" ${d.isRecurring ? 'checked' : ''}>
+          نعم، يتكرر مستقبلاً (رواتب شهرية، عهدة متكررة…)
+        </label>
+      </div>
+      </div>
 
       <label>المستفيدون (شخص أو أكثر، أو جهة)</label>
       <div id="beneficiaryList">
@@ -12516,25 +12520,33 @@ function renderNewRequest(app){
       </div>
       <div id="amountLimitWarning" style="display:none;background:var(--amber-bg);color:#1B2733;border:1px solid var(--amber);border-radius:6px;padding:10px 14px;font-size:12.5px;margin-top:10px;"></div>
 
-      <div class="actions-row">
-        <button id="submitDraftBtn" class="btn btn-primary submit-draft-trigger btn-md" ${pageAtLeast('newreq','edit')?'':'disabled title="ليست لديك صلاحية الإرسال"'} data-on-click="submitDraft">${state.editingReqId ? 'حفظ التعديلات' : 'إرسال للاعتماد'}</button>
+      <label style="margin-top:14px;">ملاحظات الطلب (اختياري — داخلية لا تُطبع، يراها المعتمدون والمالية)</label>
+      <textarea id="requestNotesInput" class="grow-1" rows="1" placeholder="مثال: الفاتورة الأصلية مع المحاسب">${escH(d.requestNotes||'')}</textarea>
+
+      <div class="actions-row" style="align-items:center;">
+        <button id="submitDraftBtn" class="btn btn-primary submit-draft-trigger btn-md" ${canSend?'':`disabled title="${noSendTip}"`} data-on-click="submitDraft">${state.editingReqId ? 'حفظ التعديلات' : 'إرسال للاعتماد'}</button>
         <button class="btn btn-ghost btn-md" ${qon('click', state.editingReqId ? [["#25",[]]] : [["discardDraftAndCancel",[]]])}>إلغاء${state.editingReqId ? '' : ' ومسح المسودة'}</button>
+        <span class="req-num-note">${numNote}</span>
       </div>
     </div>
     <div class="gfb-spacer" style="height:70px;"></div>
     <div class="sticky-submit-bar no-print">
-      <span class="sticky-total" id="stickyTotalPreview">0.000 د.ك</span>
       <button type="button" class="btn btn-ghost btn-md" title="إضافة مستفيد" style="flex:0 0 auto;" data-on-click="addBeneficiaryRow">+ إضافة مستفيد</button>
       <button id="amountLimitBadge" type="button" data-on-click="scrollToAmountWarning" title="اضغط لعرض تفاصيل التحذير" style="display:none;background:var(--amber-bg);color:#1B2733;border:2px solid var(--amber);border-radius:24px;padding:9px 18px;font-size:15px;font-weight:700;white-space:nowrap;align-items:center;gap:8px;cursor:pointer;">
         <span style="font-size:22px;line-height:1;">⚠️</span> تجاوز الحد
       </button>
-      <button class="btn btn-primary submit-draft-trigger btn-md" ${pageAtLeast('newreq','edit')?'':'disabled title="ليست لديك صلاحية الإرسال"'} data-on-click="submitDraft">${state.editingReqId ? 'حفظ التعديلات' : 'إرسال للاعتماد'}</button>
+      <button class="btn btn-primary submit-draft-trigger btn-md" ${canSend?'':`disabled title="${noSendTip}"`} data-on-click="submitDraft">${state.editingReqId ? 'حفظ التعديلات' : 'إرسال للاعتماد'}</button>
       <button class="btn btn-ghost btn-md" ${qon('click', state.editingReqId ? [["#25",[]]] : [["discardDraftAndCancel",[]]])}>إلغاء</button>
+      <span class="sticky-total sticky-total-end" id="stickyTotalPreview" title="إجمالي الطلب">0.000 د.ك</span>
     </div>
   `;
   updateTotalPreview();
+  app.querySelectorAll('textarea.grow-1').forEach(qyGrow);
   attachDraftAutoSave();
 }
+// حقل نصي بسطر واحد يطول مع الكتابة (سبب الطلب، ملاحظات الطلب)
+function qyGrow(t){ if(!t) return; t.style.height = 'auto'; t.style.height = Math.max(40, t.scrollHeight + 2) + 'px'; }
+document.addEventListener('input', ev=>{ const t = ev.target; if(t && t.matches && t.matches('textarea.grow-1')) qyGrow(t); });
 function discardDraftAndCancel(){
   clearDraftStorage();
   state.view='dashboard';
@@ -12728,7 +12740,7 @@ function budgetBarHtml(label, budget, consumed){
   return `
     <div style="margin-bottom:10px;">
       <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;gap:8px;">
-        <span><b>${label}</b> — المستهلك: ${fmtKWD(consumed)} د.ك من ${fmtKWD(budget)} د.ك (${Math.round(pct)}%)</span>
+        <span><b>${label}</b> — المستهلك: ${fmtKWD(consumed,{noUnit:true})} د.ك من ${fmtKWD(budget,{noUnit:true})} د.ك (${Math.round(pct)}%)</span>
         <span style="color:${over?'var(--red)':'var(--muted)'};font-weight:600;white-space:nowrap;">${over?'تجاوز بمقدار '+fmtKWD(Math.abs(remaining)):'المتبقي: '+fmtKWD(remaining)} د.ك</span>
       </div>
       <div style="background:var(--line);border-radius:6px;height:8px;overflow:hidden;">
@@ -12753,7 +12765,7 @@ function renderBudgetFloat(req){
     const mC = centerConsumed(u.id, year, month), aC = centerConsumed(u.id, year, null);
     [budgetPct(u.monthlyBudget, mC), budgetPct(u.annualBudget, aC)].forEach(x=>{ if(x!=null) pcts.push(x); });
     return budgetBarHtml('الميزانية الشهرية'+who+' ('+monthLabel+')'+sfx, u.monthlyBudget, mC) + budgetBarHtml('الميزانية السنوية'+who+' ('+year+')'+sfx, u.annualBudget, aC)
-      + (hasKids && (u.monthlyBudget!=null||u.annualBudget!=null) ? `<div class="sub" style="font-size:11.5px;margin:-4px 0 8px;">منها الوحدة وحدها: شهرياً ${fmtKWD(centerConsumed(u.id, year, month, true))} د.ك · سنوياً ${fmtKWD(centerConsumed(u.id, year, null, true))} د.ك</div>` : '');
+      + (hasKids && (u.monthlyBudget!=null||u.annualBudget!=null) ? `<div class="sub" style="font-size:11.5px;margin:-4px 0 8px;">منها الوحدة وحدها: شهرياً ${fmtKWD(centerConsumed(u.id, year, month, true),{noUnit:true})} د.ك · سنوياً ${fmtKWD(centerConsumed(u.id, year, null, true),{noUnit:true})} د.ك</div>` : '');
   }).join('');
   const annualHtml = '';
   const worst = Math.max(...pcts);
