@@ -298,6 +298,24 @@ const STATUS_ROLE_MAP = {
 };
 const OLD_DECISION_STATUSES = ['pending_manager','pending_senior','pending_executive'];
 // يبني مسار القرار الصاعد لصاحب الطلب (نفس منطق معاينة المسار بالهيكل التنظيمي بالضبط)
+// صف خطوة اعتماد من القاعدة إلى شكل الواجهة
+function mapStepRow(s){
+  return {id:s.id, approverId:s.approver_id, sequenceOrder:s.sequence_order, roleLabel:s.role_label, status:s.status, actedAt:s.acted_at||null, note:s.note||'',
+          kind:s.kind||'primary', escalatedFrom:s.escalated_from||null, activatedAt:s.activated_at||null};
+}
+// تخطّي الأدوار المسموح تخطّيها لمبلغ صغير حسب مركز صاحب الطلب (مطابق لدالة الخادم qy_decision_chain)
+function applyFastTrack(creatorUser, total, chain){
+  const c = creatorUser ? state.centers.find(x=>x.id===creatorUser.centerId) : null;
+  if(!(c && c.minThreshold!=null && total <= c.minThreshold && chain.length>0)) return {chain, fast:false};
+  const skip = new Set();
+  if(c.skipDeptManager) skip.add('dept_manager');
+  if(c.skipSeniorManager) skip.add('senior_manager');
+  if(c.skipExecutiveManager) skip.add('executive_manager');
+  if(!skip.size) return {chain, fast:false};
+  const f = chain.filter(s=>{ const u = state.users.find(x=>x.id===s.approverId); return !u || !skip.has(u.role); });
+  return f.length!==chain.length ? {chain:f, fast:true} : {chain, fast:false};
+}
+// المسار الرسمي يبنيه الخادم (qy_set_chain). هذه الدالة للمعاينة والرسائل فقط، وتطابق دالة الخادم qy_decision_chain
 function buildDecisionChain(requester, companyId){
   const {chain, error} = computeApprovalChainPreview(requester.id, companyId);
   return {steps: chain.map(u=>({approverId:u.id})), error};
@@ -2290,7 +2308,8 @@ const PAGE_CATALOG = [
   {key:'recurring', label:'القيود الدورية',    hint:'قراءة: يرى · تعديل: يرحّل ويتخطّى ويعدّل · تحكم كامل: ينشئ القوالب ويحذفها'},
   {key:'ledger',    label:'دفتر الحركات',      hint:'قراءة: يرى · تعديل: يعكس ويسترد · تحكم كامل: قيد يدوي'},
   {key:'analytics', label:'التحليلات المالية', hint:'عرض فقط'},
-  {key:'handovers', label:'الإسناد',            hint:'إسناد المعاملات لزميل عند الغياب أو الانتقال. يظهر دائماً لمن وصله إسناد'}
+  {key:'handovers', label:'الإسناد',            hint:'إسناد المعاملات لزميل عند الغياب أو الانتقال. يظهر دائماً لمن وصله إسناد'},
+  {key:'monitor',   label:'لوحة المتابعة',     hint:'ما يحدث في النظام: من ينتظر قراره، وما في يد المالية، وآخر الحركات (عرض فقط)'}
 ];
 const PAGE_FINANCE_ROLES = ['admin','accountant','cfo'];
 function pageDefaultLevel(role, key){
@@ -2298,7 +2317,8 @@ function pageDefaultLevel(role, key){
   const fin = PAGE_FINANCE_ROLES.includes(role);
   if(key==='newreq' || key==='analytics') return 'full';          // الوضع الحالي: الجميع
   if(key==='revenues' || key==='ledger' || key==='recurring') return fin ? 'full' : 'none';
-  if(key==='handovers') return role==='employee' ? 'none' : 'full';   // الإسناد للمعتمِدين والمالية؛ الموظف بلا معاملات يعتمدها
+  if(key==='handovers') return role==='employee' ? 'none' : 'full';
+  if(key==='monitor') return fin ? 'full' : 'none';                  // المالية افتراضياً، ومن يُمنح من صفحة الصلاحيات   // الإسناد للمعتمِدين والمالية؛ الموظف بلا معاملات يعتمدها
   return 'full';
 }
 function pageExplicitRow(key, role, companyId){
@@ -2485,6 +2505,7 @@ function groupNavSets(){
   const fin = [{key:'expense', label:'الصرف', views:['dashboard','detail','duplicateList','newRequest','newRequestChoice','oldRequests'], js:go([["#4",[]]]), subs:expSubs}];
   if(canSeeRevenues()) fin.push({key:'revenue', label:'الإيراد', views:['revenues'], js:go([["openRevenues",[0]]])});
   if(canSeeRecurring()) fin.push({key:'recurring', label:'القيود الدورية', views:['recurring'], js:go([["openRecurring",[0]]])});
+  if(canSeeMonitor()) fin.push({key:'monitor', label:'لوحة المتابعة', views:['monitor'], js:go([["openMonitor",[]]])});
   sets.push(fin);
   // التقارير (لغير المدير؛ المدير يراها داخل لوحة التحكم)
   if(u.role!=='admin'){
@@ -2539,7 +2560,7 @@ function setAccountSec(i){
 // مجموعات الشريط الجانبي القابلة للفتح والإغلاق: المعاملات المالية | لوحة التحكم | المساعدة
 function inFinArea(){
   const v = state.view;
-  if(['dashboard','detail','newRequest','newRequestChoice','duplicateList','printPreview','revenues','recurring','handovers','oldRequests'].includes(v)) return true;
+  if(['dashboard','detail','newRequest','newRequestChoice','duplicateList','printPreview','revenues','recurring','handovers','oldRequests','monitor'].includes(v)) return true;
   return !inAdminArea() && ['ledger','analytics'].includes(v);
 }
 function inHelpArea(){ return ['guide','sitemap'].includes(state.view); }
@@ -2560,6 +2581,7 @@ function navFinSubs(){
   if(canSeeHandovers()) subs.push({label:'الإسناد', count:(typeof hoMyPendingToMeCount==='function'?hoMyPendingToMeCount():0), active:state.view==='handovers', js:[["openHandovers",[]]]});
   if(canSeeRevenues()) subs.push({label:'الإيراد', active:state.view==='revenues', js:[["openRevenues",[0]]]});
   if(canSeeRecurring()) subs.push({label:'القيود الدورية', count:recDueCount(), active:state.view==='recurring', js:[["openRecurring",[0]]]});
+  if(canSeeMonitor()) subs.push({label:'لوحة المتابعة', active:state.view==='monitor', js:[["openMonitor",[]]]});
   if(role!=='admin' && (pageLevel('ledger')!=='none' || pageLevel('analytics')!=='none')){
     const toLedger = pageLevel('ledger')!=='none';
     subs.push({label:'التقارير', active:['ledger','analytics'].includes(state.view),
@@ -2695,6 +2717,7 @@ function searchSectionIndex(){
   if(canSeeRevenues()){ out.push({label:'الإيرادات', sub:'الإيراد', js:[["openRevenues",[0]]]}); if(pageAtLeast('revenues','full')) out.push({label:'إيراد جديد', sub:'الإيراد', js:[["openRevenues",[1]]]}); }
   if(state.user && state.user.role!=='admin'){
     if(pageLevel('ledger')!=='none') out.push({label:'دفتر الحركات', sub:'التقارير', js:[["openLedger",[]]]});
+    if(canSeeMonitor()) out.push({label:'لوحة المتابعة', sub:'التقارير', js:[["openMonitor",[]]]});
     if(pageLevel('analytics')!=='none') out.push({label:'التحليلات المالية', sub:'التقارير', js:[["openAnalytics",[]]]});
   }
   if(state.user && state.user.role==='admin'){
@@ -4004,11 +4027,17 @@ async function submitDraftInner(){
     request_notes: requestNotes || null
   });
   if(!(await dbCheck(reqInsert, 'إنشاء الطلب'))) return;
-  const stepRows = chain.map((s,i)=>({id:'as_'+req.id+'_'+i, request_id:req.id, approver_id:s.approverId, sequence_order:i+1, role_label:s.roleLabel, status:'pending', kind:'primary', activated_at: i===0 ? new Date().toISOString() : null}));
-  const stepsInsert = stepRows.length ? await db.from('request_approval_steps').insert(stepRows) : {error:null};
-  // فشل بناء المسار لا يترك طلباً يتيماً بلا معتمدين في القاعدة: يُحذف الطلب ويبقى النموذج كما هو
-  if(!(await dbCheck(stepsInsert, 'بناء مسار الاعتماد'))){ await db.from('requests').delete().eq('id', req.id); return; }
-  req.approvalSteps = stepRows.map(s=>({id:s.id, approverId:s.approver_id, sequenceOrder:s.sequence_order, roleLabel:s.role_label, status:'pending', actedAt:null, note:'', kind:'primary', escalatedFrom:null, activatedAt:s.activated_at}));
+  // مسار الاعتماد يبنيه الخادم من الهيكل التنظيمي (qy_set_chain)؛ المتصفح لا يضيف خطوات المسار
+  if(initialStatus==='pending_decision'){
+    const chainRes = await db.rpc('qy_set_chain', {p_req: req.id, p_reset: false});
+    if(!(await dbCheck(chainRes, 'بناء مسار الاعتماد'))){ await db.from('requests').delete().eq('id', req.id); return; }
+    req.approvalSteps = (chainRes.data||[]).map(mapStepRow);
+    if(!req.approvalSteps.length){
+      await db.from('requests').delete().eq('id', req.id);
+      showToast('تعذّر بناء مسار الاعتماد في الخادم — حدّث الصفحة وحاول مرة أخرى، أو راجع مدير النظام', 'error');
+      return;
+    }
+  }
   const beneInsert = await db.from('request_beneficiaries').insert(beneRows.map(r=>({...r, request_id:req.id})));
   if(beneInsert.error){
     console.error('إضافة المستفيدين', beneInsert.error);
@@ -4135,7 +4164,7 @@ async function rebuildChainIfUntouched(req){
     if(error) return false; // حلقة دائرية بالهيكل — لا نلمس الطلب، يبقى كما هو حتى يُصلَح الهيكل
     // حماية: مسار جديد فارغ لطلب له خطوات اعتماد = اختلال مؤقت (مدير أُزيل أثناء تعديل مستخدم مثلاً)، لا إلغاء لمعتمديه وقفز إلى المحاسب
     if(steps.length===0 && (req.approvalSteps||[]).length>0) return false;
-    freshChain = steps.map(s=>({roleLabel:'pending_decision', approverId:s.approverId}));
+    freshChain = applyFastTrack(creator, req.totalAmount, steps).chain.map(s=>({roleLabel:'pending_decision', approverId:s.approverId}));
     freshStatus = freshChain.length ? 'pending_decision' : 'pending_transfer_request';
   } else {
     freshChain = buildApprovalChain(creator);
@@ -4145,23 +4174,14 @@ async function rebuildChainIfUntouched(req){
   const currentChainSig = (req.approvalSteps||[]).map(s=>s.approverId).join(',');
   const freshChainSig = freshChain.map(s=>s.approverId).join(',');
   if((isOldEngine && freshChain.length===0) || currentChainSig===freshChainSig) return false;
-  const oldRows = (req.approvalSteps||[]).map(s=>({id:s.id, request_id:req.id, approver_id:s.approverId, sequence_order:s.sequenceOrder, role_label:s.roleLabel, status:'pending', kind:s.kind||'primary', activated_at:s.activatedAt||null}));
-  const delResult = await db.from('request_approval_steps').delete().eq('request_id', req.id);
-  if(delResult.error) return false;
-  const stepRows = freshChain.map((s,i)=>({id:'as_'+req.id+'_a'+Date.now()+'_'+i, request_id:req.id, approver_id:s.approverId, sequence_order:i+1, role_label:s.roleLabel, status:'pending'}));
-  if(stepRows.length){
-    const insResult = await db.from('request_approval_steps').insert(stepRows);
-    if(insResult.error){
-      // فشل الإدراج بعد الحذف: يُعاد المسار القديم كما كان حتى لا يبقى الطلب بلا معتمدين
-      if(oldRows.length) await db.from('request_approval_steps').insert(oldRows);
-      return false;
-    }
-  }
-  req.approvalSteps = stepRows.map(s=>({id:s.id, approverId:s.approver_id, sequenceOrder:s.sequence_order, roleLabel:s.role_label, status:'pending', actedAt:null, note:''}));
-  const newStatus = freshStatus;
+  if(!isNewEngine) return false;   // طلبات المحرك القديم تحتفظ بخطواتها؛ لا إعادة بناء تلقائية لها
+  const rr = await db.rpc('qy_set_chain', {p_req: req.id, p_reset: false});
+  if(rr.error) return false;
+  req.approvalSteps = (rr.data||[]).map(mapStepRow);
+  const newStatus = req.approvalSteps.length ? 'pending_decision' : 'pending_transfer_request';
   const nmOf = id => (state.users.find(u=>u.id===id)||{}).name || id;
   const prevSig = currentChainSig ? currentChainSig.split(',').map(nmOf).join(' ← ') : 'لا أحد';
-  const nextSig = freshChain.length ? freshChain.map(x=>nmOf(x.approverId)).join(' ← ') : 'لا أحد';
+  const nextSig = req.approvalSteps.length ? req.approvalSteps.map(x=>nmOf(x.approverId)).join(' ← ') : 'لا أحد';
   if(newStatus && newStatus !== req.status){
     const stR = await db.from('requests').update({status:newStatus}).eq('id', req.id).select('id');
     if(!stR.error && stR.data && stR.data.length) req.status = newStatus;
@@ -4416,14 +4436,10 @@ async function rebuildRequestPath(req){
     showToast('تعذّر إعادة البناء: '+chainError, 'error');
     return;
   }
-  const delResult = await db.from('request_approval_steps').delete().eq('request_id', req.id);
-  if(!(await dbCheck(delResult, 'حذف مسار الاعتماد القديم'))) return;
-  const stepRows = newSteps.map((s,i)=>({id:'as_'+req.id+'_r'+Date.now()+'_'+i, request_id:req.id, approver_id:s.approverId, sequence_order:i+1, role_label:'pending_decision', status:'pending'}));
-  if(stepRows.length){
-    const insResult = await db.from('request_approval_steps').insert(stepRows);
-    if(!(await dbCheck(insResult, 'بناء مسار الاعتماد الجديد'))) return;
-  }
-  req.approvalSteps = stepRows.map(s=>({id:s.id, approverId:s.approver_id, sequenceOrder:s.sequence_order, roleLabel:s.role_label, status:'pending', actedAt:null, note:''}));
+  const rr = await db.rpc('qy_set_chain', {p_req: req.id, p_reset: false});
+  if(!(await dbCheck(rr, 'إعادة بناء مسار الاعتماد'))) return;
+  req.approvalSteps = (rr.data||[]).map(mapStepRow);
+  const stepRows = req.approvalSteps;
   const newStatus = stepRows.length ? 'pending_decision' : 'pending_transfer_request';
   if(newStatus !== req.status){
     await pushHistory(req, {step:req.status, actor: state.user.name, userId: state.user.id, action:'إعادة بناء مسار الاعتماد', note:'', time: fmtDate()});
@@ -4452,27 +4468,11 @@ async function rebuildRequestPathAndReset(req){
     .map(s=>s.approverId)
     .filter((v,i,a)=>a.indexOf(v)===i);
 
-  // حذف مسار الاعتماد القديم
-  const delResult = await db.from('request_approval_steps').delete().eq('request_id', req.id);
-  if(!(await dbCheck(delResult, 'حذف مسار الاعتماد القديم'))) return;
-
-  // بناء مسار جديد
-  const stepRows = newSteps.map((s,i)=>({
-    id:'as_'+req.id+'_r'+Date.now()+'_'+i,
-    request_id:req.id,
-    approver_id:s.approverId,
-    sequence_order:i+1,
-    role_label:'pending_decision',
-    status:'pending'
-  }));
-  if(stepRows.length){
-    const insResult = await db.from('request_approval_steps').insert(stepRows);
-    if(!(await dbCheck(insResult, 'بناء مسار الاعتماد الجديد'))) return;
-  }
-  req.approvalSteps = stepRows.map(s=>({
-    id:s.id, approverId:s.approver_id, sequenceOrder:s.sequence_order,
-    roleLabel:s.role_label, status:'pending', actedAt:null, note:''
-  }));
+  // الخادم يحذف المسار القديم ويبني الجديد معاً (ذرّياً)، ويلغي الاعتمادات السابقة
+  const rr = await db.rpc('qy_set_chain', {p_req: req.id, p_reset: true});
+  if(!(await dbCheck(rr, 'إعادة المسار والاعتماد'))) return;
+  req.approvalSteps = (rr.data||[]).map(mapStepRow);
+  const stepRows = req.approvalSteps;
 
   // إضافة سجل تاريخي
   await pushHistory(req, {step:req.status, actor: state.user.name, userId: state.user.id,
@@ -5801,6 +5801,7 @@ function render(){
   else if(state.view==='handovers') renderHandovers(app);
   else if(state.view==='oldRequests') renderOldRequests(app);
   else if(state.view==='pathCheck') renderPathCheckPage(app);
+  else if(state.view==='monitor') renderMonitor(app);
 
   // حقول الدور والشركة وسلسلة الاعتماد يغيّرها مدير النظام وحده (الخادم يمنع غيره) — تُقفل لغيره بدل أن يظهر له خطأ
   if(state.user && state.user.role!=='admin'){
@@ -6081,6 +6082,7 @@ function siteMapPages(){
   }
   if(canSeeRecurring()) P.push({g:'المالية', ico:'🔁', label:'القيود الدورية', desc:'قوالب المصروفات والإيرادات المتكررة وكشف ترحيلها.', js:[["openRecurring",[0]]], guide:'rec',
     btns:[['ترحيل المحدد','يرحّل الاستحقاقات المحددة إلى الدفتر'],['تخطي','يلغي استحقاقاً واحداً'],['اعتماد / تعديل / إيقاف مؤقت / إنهاء','إدارة القالب'],['استعادة','يعيد استحقاقاً متخطّى إلى الكشف'],['حفظ وإرسال للاعتماد','في نموذج «قالب جديد»']]});
+  if(canSeeMonitor()) P.push({g:'المالية', ico:'📡', label:'لوحة المتابعة', desc:'من ينتظر قراره ومنذ متى، وما في يد المالية، وآخر الحركات.', js:[["openMonitor",[]]], guide:'', btns:[['تحديث','يعيد تحميل الأرقام']]});
   if(pageLevel('ledger')!=='none' || isAdmin) P.push({g:'المالية', ico:'📒', label:'دفتر الحركات', desc:'سجل كل دخول وخروج مال، مع فرز وفلاتر.', js:[["openLedger",[]]], guide:'ledger',
     btns:[['استرداد','المال عاد فعلاً بعد خروجه'],['عكس','التسجيل نفسه خطأ'],['+ قيد يدوي','تسوية أو رصيد افتتاحي']]});
   if(pageLevel('analytics')!=='none' || isAdmin) P.push({g:'المالية', ico:'📊', label:'التحليلات المالية', desc:'رسوم وأرقام المصروف والمتاح.', js:[["openAnalytics",[]]], guide:'acct', btns:[]});
@@ -7428,6 +7430,101 @@ function ledgerApplyDefaults(){
   state.ledgerSort   = (d && d.sort) ? Object.assign({}, d.sort) : {key:'date', dir:'asc'};
 }
 function openLedger(){ state.view = 'ledger'; render(); }
+
+// ═════════════ لوحة المتابعة (#33): ما يحدث في الشركة الآن ═════════════
+// البيانات من دالة الخادم qy_monitor: تتحقق هي من الصلاحية، فلا يرى أحد إلا ما أُذن له
+function canSeeMonitor(){ return !!state.user && pageLevel('monitor')!=='none'; }
+function openMonitor(){ state.view = 'monitor'; state.monitor = state.monitor || {days:7}; render(); loadMonitor(); window.scrollTo(0,0); }
+async function loadMonitor(){
+  const m = state.monitor = state.monitor || {days:7};
+  if(m.loading) return;
+  m.loading = true;
+  try{
+    const {data, error} = await db.rpc('qy_monitor', {p_company: state.currentCompanyId, p_days: m.days||7});
+    m.error = error ? (error.message||'تعذّر التحميل') : null;
+    if(!error){ m.data = data; m.company = state.currentCompanyId; }
+    m.at = Date.now();
+  }catch(e){ m.error = String(e && e.message || e); }
+  m.loading = false;
+  if(state.view==='monitor') render();
+}
+function setMonitorDays(v){ state.monitor = state.monitor || {}; state.monitor.days = Number(v)||7; loadMonitor(); }
+function monitorAgo(iso){
+  const t = Date.parse(iso); if(!t) return '—';
+  const m = Math.max(0, Math.round((Date.now()-t)/60000));
+  if(m < 60) return m<=1 ? 'الآن' : `قبل ${m} دقيقة`;
+  const h = Math.round(m/60); if(h < 24) return `قبل ${h} ساعة`;
+  const d = Math.round(h/24); return `قبل ${d} ${d===1?'يوم':'أيام'}`;
+}
+function monitorWhen(iso){
+  const d = new Date(iso); if(isNaN(d)) return '';
+  const p = n=>String(n).padStart(2,'0');
+  return `${p(d.getDate())}-${p(d.getMonth()+1)}-${d.getFullYear()} ${d.getHours()%12||12}:${p(d.getMinutes())} ${d.getHours()<12?'ص':'م'}`;
+}
+function renderMonitor(app){
+  const m = state.monitor || {days:7};
+  if(!canSeeMonitor()){ app.innerHTML = `<div class="card"><h2>لوحة المتابعة</h2><p class="sub">ليست لديك صلاحية هذه الصفحة.</p></div>`; return; }
+  if((!m.data || m.company!==state.currentCompanyId || (Date.now()-(m.at||0)) > 60000) && !m.loading) setTimeout(loadMonitor, 0);
+  const d = (m.company===state.currentCompanyId && m.data) || null;
+  const head = `<div class="card"><div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;">
+      <h2 style="margin:0;">لوحة المتابعة</h2><span class="sub">${escH(currentCompanyName())}${m.at ? ' · آخر تحديث ' + escH(monitorAgo(new Date(m.at).toISOString())) : ''}</span>
+      <span style="margin-right:auto;"></span>
+      <label class="sub" style="display:flex;gap:6px;align-items:center;">حركات آخر
+        <select data-on-change="setMonitorDays" data-on-change-args="${qa([QA.v])}" style="width:auto;">${[1,7,30].map(n=>`<option value="${n}" ${Number(m.days||7)===n?'selected':''}>${n===1?'يوم':n+' أيام'}</option>`).join('')}</select></label>
+      <button type="button" class="btn btn-ghost btn-sm" data-on-click="loadMonitor">${m.loading?'<span class="spin"></span>':'↻'} تحديث</button>
+    </div>${m.error ? `<p class="sub" style="color:var(--red);margin:8px 0 0;">${escH(m.error)}</p>` : ''}</div>`;
+  if(!d){ app.innerHTML = head + `<div class="card"><div class="spinner"></div></div>`; return; }
+  const st = d.status || {}, n = k => (st[k]||{}).n||0, sm = k => Number((st[k]||{}).sum||0);
+  const finKeys = ['pending_transfer_request','pending_transfer_approval','pending_disbursement'];
+  const tile = (label, num, amount, color, sub) => `<div class="card" style="flex:1 1 160px;margin:0;border-top:4px solid ${color};">
+      <div class="sub" style="margin-bottom:4px;">${label}</div><div style="font-size:24px;font-weight:700;">${num}</div>
+      ${amount!=null ? `<div class="sub" dir="rtl">${fmtKWD(amount)}</div>` : ''}${sub ? `<div class="sub" style="font-size:12px;">${sub}</div>` : ''}</div>`;
+  const t = d.today || {};
+  const today = `<div class="card"><h3 style="margin-top:0;">اليوم</h3><div style="display:flex;flex-wrap:wrap;gap:10px;">
+      ${tile('طلبات أُنشئت', t.created||0, null, 'var(--blue)')}${tile('اعتمادات', t.approved||0, null, 'var(--green)')}
+      ${tile('رفض', t.rejected||0, null, 'var(--red)')}${tile('صُرف', t.paid||0, Number(t.paid_sum||0), 'var(--ink)')}</div></div>`;
+  const decN = n('pending_decision') + n('pending_manager') + n('pending_senior') + n('pending_executive');
+  const decS = sm('pending_decision') + sm('pending_manager') + sm('pending_senior') + sm('pending_executive');
+  const finN = finKeys.reduce((a,k)=>a+n(k),0), finS = finKeys.reduce((a,k)=>a+sm(k),0);
+  const totals = `<div class="card"><h3 style="margin-top:0;">الطلبات الآن</h3><div style="display:flex;flex-wrap:wrap;gap:10px;">
+      ${tile('قيد القرار', decN, decS, 'var(--amber)')}${tile('في يد المالية', finN, finS, 'var(--blue)')}
+      ${tile('تم الصرف', n('completed'), sm('completed'), 'var(--green)')}${tile('مرفوضة', n('rejected'), sm('rejected'), 'var(--red)')}
+      ${tile('ملغاة', d.cancelled||0, null, '#9a9890')}</div></div>`;
+  const sec = d.security ? `<div class="card" style="border-right:4px solid ${(d.security.alerts||d.security.errors)?'var(--red)':'var(--green)'};">
+      <h3 style="margin-top:0;">الأمان (لمدير النظام)</h3><div style="display:flex;flex-wrap:wrap;gap:18px;align-items:center;">
+      <span>تنبيهات لم تُراجع: <b>${d.security.alerts||0}</b></span><span>أخطاء اليوم: <b>${d.security.errors||0}</b></span>
+      <span>دخول فاشل (24 ساعة): <b>${d.security.failed_logins||0}</b></span>
+      <button type="button" class="btn btn-ghost btn-sm" data-on-click="openSecurityLogFromMonitor">فتح سجل الأمان</button></div></div>` : '';
+  const late = w => Number(w.limit)>0 && Number(w.days) >= Number(w.limit);
+  const waiting = d.waiting || [];
+  const lateN = waiting.filter(late).length;
+  const reqCell = r => `<b>${escH(r.number || 'قيد المراجعة')}</b>`;
+  const waitRows = waiting.map(w=>`<tr style="cursor:pointer;" data-on-click="openRequest" data-on-click-args="${qa([w.req])}">
+      <td>${reqCell(w)}</td><td>${escH(w.reason||'')}</td><td dir="rtl">${fmtKWD(Number(w.amount||0))}</td><td>${escH(w.approver_name||'—')}</td>
+      <td title="${escH(monitorWhen(w.since))}">${escH(monitorAgo(w.since))}</td><td>${Number(w.limit)>0 ? escH(String(w.limit))+' أيام' : '—'}</td>
+      <td>${late(w) ? '<span class="badge badge-overdue">متأخر</span>' : ''}${w.escalated ? ' <span class="badge">أُحيل</span>' : ''}</td></tr>`).join('');
+  const waitT = `<div class="card"><h3 style="margin-top:0;">من ينتظر قراره <span class="sub">(${waiting.length}${lateN ? ' · متأخر ' + lateN : ''})</span></h3>
+      ${waiting.length ? `<div style="overflow-x:auto;"><table class="app-table"><thead><tr><th>الطلب</th><th>البيان</th><th>المبلغ</th><th>المعتمِد</th><th>ينتظر منذ</th><th>المهلة</th><th></th></tr></thead><tbody>${waitRows}</tbody></table></div>`
+        : '<p class="sub">لا طلبات تنتظر قراراً.</p>'}
+      <p class="sub" style="font-size:12px;margin:6px 0 0;">«متأخر» بالأيام التقويمية من بدء الخطوة؛ والإحالة التلقائية تحسب بإعداد الشركة (أيام عمل أو تقويم).</p></div>`;
+  const stepName = k => ({pending_transfer_request:'طلب التحويل (المحاسب)', pending_transfer_approval:'اعتماد التحويل (المدير المالي)', pending_disbursement:'إتمام الصرف (المحاسب)'})[k] || k;
+  const fin = d.finance || [];
+  const finT = `<div class="card"><h3 style="margin-top:0;">في يد المالية <span class="sub">(${fin.length})</span></h3>
+      ${fin.length ? `<div style="overflow-x:auto;"><table class="app-table"><thead><tr><th>الطلب</th><th>البيان</th><th>المبلغ</th><th>المرحلة</th><th>منذ آخر حركة</th></tr></thead><tbody>${
+        fin.map(f=>`<tr style="cursor:pointer;" data-on-click="openRequest" data-on-click-args="${qa([f.req])}"><td>${reqCell(f)}</td><td>${escH(f.reason||'')}</td><td dir="rtl">${fmtKWD(Number(f.amount||0))}</td><td>${escH(stepName(f.status))}</td><td title="${escH(monitorWhen(f.since))}">${escH(monitorAgo(f.since))}</td></tr>`).join('')
+      }</tbody></table></div>` : '<p class="sub">لا شيء في يد المالية الآن.</p>'}</div>`;
+  const feed = d.feed || [];
+  const feedT = `<div class="card"><h3 style="margin-top:0;">آخر الحركات <span class="sub">(${feed.length} خلال ${Number(d.days)===1?'يوم':d.days+' أيام'})</span></h3>
+      ${feed.length ? `<div style="display:flex;flex-direction:column;gap:2px;">${feed.map(e=>`<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:baseline;padding:6px 0;border-bottom:1px solid var(--line);cursor:pointer;" data-on-click="openRequest" data-on-click-args="${qa([e.req])}">
+          <span class="sub" style="min-width:92px;" title="${escH(monitorWhen(e.at))}">${escH(monitorAgo(e.at))}</span>
+          <b>${escH(e.actor||'')}</b><span>${escH(e.action||'')}</span>
+          <span class="sub">— ${escH(e.number || 'قيد المراجعة')} · ${escH(e.reason||'')}</span>
+          <span style="margin-right:auto;" dir="rtl">${fmtKWD(Number(e.amount||0))}</span>
+          ${e.note ? `<div class="sub" style="flex-basis:100%;font-size:12px;">${escH(e.note)}</div>` : ''}</div>`).join('')}</div>`
+        : '<p class="sub">لا حركات في هذه المدة.</p>'}</div>`;
+  app.innerHTML = head + sec + today + totals + waitT + finT + feedT;
+}
+function openSecurityLogFromMonitor(){ state.view = 'securityLog'; render(); window.scrollTo(0,0); }
 function ledgerClearFilters(){ state.ledgerFilter = {}; render(); }
 function ledgerSortBy(key){
   const s = state.ledgerSort || {key:'date', dir:'asc'};
