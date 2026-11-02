@@ -149,6 +149,11 @@
   .test-badge{background:#c2410c;color:#fff;font-size:12px;font-weight:700;line-height:18px;padding:0 9px;border-radius:9px;white-space:nowrap;letter-spacing:0;}
   /* مرشّحات داخل الصفحة (أزرار متجاورة لا صف تبويب) */
   .page-seg{flex-wrap:wrap;margin:0 0 12px;}
+  /* ألوان حالات الطلب: شريط على يمين الطلب ومفتاح الألوان فوق القائمة؛ والمسنَد إليك بلون الإسناد */
+  .status-legend{display:flex;flex-wrap:wrap;gap:6px 16px;margin:0 0 8px;font-size:12px;color:var(--muted);}
+  .status-legend span{display:inline-flex;align-items:center;gap:5px;}
+  .status-legend i{display:inline-block;width:12px;height:12px;border-radius:3px;}
+  .req-card .badge.handed-badge,.badge.handed-badge{background:#ccfbf1;color:#0f766e;border:1px solid #5eead4;margin-top:3px;font-size:10.5px;white-space:normal;line-height:1.35;text-overflow:clip;}
   .tab-count{display:inline-block;min-width:18px;padding:0 6px;border-radius:9px;background:#D4AF37;color:#1B2733;font-size:11px;font-weight:700;line-height:18px;margin-right:4px;text-align:center;}
   .admin-nav-item:hover{background:rgba(255,255,255,.08);color:#fff;}
   .admin-nav-item.active{background:rgba(255,255,255,.13);color:#fff;font-weight:600;border-right-color:#D4AF37;}
@@ -239,7 +244,7 @@
   .adm-subs-solo{border:1px solid var(--line);border-radius:8px;margin:0 0 18px;}
   /* الصف الفاتح حين لا أجزاء للصفحة: يحمل سطر التعريف بها، فيبقى الصفّان ظاهرين في كل الصفحات */
   .sec-note{background:var(--blue-bg);border-top:1px solid rgba(27,39,51,.08);padding:8px 14px;min-height:36px;box-sizing:border-box;
-    font-size:12.5px;line-height:1.55;color:var(--muted);display:block;}
+    font-size:13px;line-height:1.6;color:var(--text);font-weight:700;display:block;}
   .sec-note b{color:var(--text);}
   /* إخفاء الأقسام غير النشطة: لا بدّ من !important لأن .list-item وغيرها تضبط display */
   [hidden]{display:none !important;}
@@ -337,7 +342,7 @@
   .combo-opt{padding:9px 12px;border-radius:6px;font-size:14px;cursor:pointer;}
   .combo-opt:hover,.combo-opt:active{background:var(--blue-bg);}
   .adm-nav2 + .page-intro,.adm-subs-solo + .page-intro{margin-top:-4px;}
-  .page-intro{margin:12px 0 14px;font-size:13.5px;color:var(--muted);}
+  .page-intro{margin:12px 0 14px;font-size:13.5px;color:var(--text);font-weight:700;}
   .tb-page::before{content:'›';color:rgba(255,255,255,.5);margin-left:10px;}
   .brand-co-group .brand-sub{font-size:17px;font-weight:700;color:#fff;}
   /* الشركة في السطر الأول، والمركز تحتها بخط أصغر — بلا اقتطاع على الحاسوب */
@@ -467,7 +472,9 @@
   .gfb-contact-numbers a:hover{color:#9FC2DB;}
   .sticky-total{font-weight:700;font-size:15px;color:#fff;white-space:nowrap;margin-left:6px;}
   /* إجمالي الطلب في أقصى يسار الشريط السفلي: الأزرار لا تتحرك حين يكبر الرقم، والعين تجده في مكانه دائماً */
-  .sticky-total-end{margin-right:auto;margin-left:20px;min-width:170px;text-align:left;flex:0 0 auto;}
+  .sticky-end{margin-right:auto;display:flex;align-items:center;gap:18px;flex:0 0 auto;padding-left:16px;}
+  .sticky-total-end{min-width:150px;text-align:left;margin:0;}
+  .gfb-contact-fixed.gfb-contact-static{position:static;transform:none;}
   /* حقل نصي بسطر واحد يطول مع الكتابة */
   textarea.grow-1{min-height:40px;height:40px;resize:none;overflow:hidden;line-height:1.4;padding-top:9px;padding-bottom:9px;}
   /* «هل يتكرر» بجوار «بند الميزانية»: نفس السطر ونفس الارتفاع */
@@ -1276,6 +1283,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.0.3/qrcode.min.js"></script>
-<script src="app.js?v=a03651c2d4"></script>
+<script src="app.js?v=92c209e1f6"></script>
 </body>
 </html>

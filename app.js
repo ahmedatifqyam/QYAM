@@ -2740,10 +2740,12 @@ function navSections(){
   if(pend || u.role!=='employee') req.push({label:'بانتظار قراري', count:pend, views:[], on: v==='dashboard' && mine, js:[["navMyPending",[]]]});
   req.push({label:'طلب صرف جديد', views:['newRequest','newRequestChoice'], js:[["#5",[]]]});
   if(nOld) req.push({label:'طلباتي في شركات أخرى', count:nOld, views:['oldRequests'], js:[["openOldRequests",[]]]});
-  out.push({key:'req', ico:'📋', label:'طلبات الصرف', count:pend, pages:req});
+  // الإسناد صار تبويباً في «طلبات الصرف» (كان قسماً مستقلاً في الشريط الجانبي)
+  const hoN = canSeeHandovers() && typeof hoMyPendingToMeCount==='function' ? hoMyPendingToMeCount() : 0;
+  if(canSeeHandovers()) req.push({label:'إسناد المعاملات', count:hoN, views:['handovers'], js:[["openHandovers",[]]]});
+  out.push({key:'req', ico:'📋', label:'طلبات الصرف', count:pend + hoN, pages:req});
   if(canSeeRevenues()) out.push({key:'rev', ico:'💵', label:'الإيرادات', pages:[{label:'الإيرادات', views:['revenues'], js:[["openRevenues",[0]]]}]});
   if(canSeeRecurring()) out.push({key:'rec', ico:'🔁', label:'القيود الدورية', count:recDueCount(), pages:[{label:'القيود الدورية', views:['recurring'], js:[["openRecurring",[0]]]}]});
-  if(canSeeHandovers()) out.push({key:'ho', ico:'🤝', label:'إسناد المعاملات', count:(typeof hoMyPendingToMeCount==='function' ? hoMyPendingToMeCount() : 0), pages:[{label:'إسناد المعاملات', views:['handovers'], js:[["openHandovers",[]]]}]});
   const rep = [];
   if(canSeeMonitor()) rep.push({label:'لوحة المتابعة', views:['monitor'], js:[["openMonitor",[]]]});
   if(pageLevel('ledger')!=='none') rep.push({label:'دفتر الحركات', views:['ledger'], js:[["#6",[]]]});
@@ -5402,6 +5404,39 @@ const STATUS_ORDER = {
   pending_transfer_approval: 3, pending_cfo: 3,
   pending_disbursement: 4, completed: 5, rejected: 6
 };
+// لون حالة الطلب: شريط على يمين الطلب في القوائم، ونقطة بجوار اسم الحالة في الفلتر
+const REQ_CAT = {
+  review:  {c:'#7c3aed', dot:'🟣', label:'قيد المراجعة'},
+  decision:{c:'#d97706', dot:'🟠', label:'قيد القرار'},
+  finance: {c:'#2563eb', dot:'🔵', label:'في يد المالية'},
+  done:    {c:'#15803d', dot:'🟢', label:'تم الصرف'},
+  rejected:{c:'#b91c1c', dot:'🔴', label:'مرفوض'},
+  cancelled:{c:'#9ca3af', dot:'⚪', label:'ملغى'},
+  handed:  {c:'#0d9488', dot:'🤝', label:'مُسنَد إليك'}
+};
+function reqCat(r){
+  if(r.isCancelled) return 'cancelled';
+  if(typeof isUnderReview==='function' && isUnderReview(r) && !['completed','rejected'].includes(r.status) && !TAIL_FLOW.includes(r.status)) return 'review';
+  if(r.status==='completed') return 'done';
+  if(r.status==='rejected') return 'rejected';
+  if(TAIL_FLOW.includes(r.status) || ['pending_accountant','pending_cfo'].includes(r.status)) return 'finance';
+  return 'decision';
+}
+// من أسند إليّ قراره في هذا الطلب: إسناد نشط يشمله، وقراره فيه لم يُتَّخذ بعد (لا يُعلَّم ما انتهى)
+function handedFromNames(r){
+  if(!state.user || r.isCancelled || ['completed','rejected'].includes(r.status)) return [];
+  return delegatedFromIds(state.user.id, r.companyId, r.id)
+    .filter(fid=>(r.approvalSteps||[]).some(s=>s.approverId===fid && s.status==='pending'))
+    .map(fid=>hoUserName(fid));
+}
+// الشريط الملوّن على يمين بطاقة الطلب، وخط ثانٍ بلون الإسناد للطلب المسنَد إليك
+function reqStripStyle(r){
+  const c = REQ_CAT[reqCat(r)].c;
+  return `border-right:6px solid ${c};` + (handedFromNames(r).length ? `box-shadow:inset -4px 0 0 ${REQ_CAT.handed.c};` : '');
+}
+function statusLegendHtml(){
+  return `<div class="status-legend no-print">${['review','decision','finance','done','rejected','cancelled','handed'].map(k=>`<span><i style="background:${REQ_CAT[k].c};"></i>${REQ_CAT[k].label}</span>`).join('')}</div>`;
+}
 function statusBadge(status, isCancelled, isOwnTurn, isBig, overdue){
   if(isCancelled) return `<span class="badge" style="background:#E3E0D6;color:#56554F;">ملغى</span>`;
   if(status==='completed') return `<span class="badge badge-paid">تم الصرف</span>`;
@@ -6311,9 +6346,12 @@ function renderGlobalFloatingBar(){
   } else {
     buttons = `<button class="btn btn-ghost btn-md" data-on-click="navBack" data-on-click-args="${qa(["dashboard"])}">→ رجوع</button>`;
   }
+  return renderGlobalFloatingBarInner(buttons);
+}
+function supportContactHtml(isStatic){
   const waIcon = `<svg viewBox="0 0 24 24" width="24" height="24" fill="#25D366"><path d="M12 2a10 10 0 0 0-8.5 15.2L2 22l4.9-1.5A10 10 0 1 0 12 2zm5.8 14.2c-.2.7-1.4 1.3-2 1.4-.5.1-1.2.2-3.5-.7-2.9-1.1-4.8-4.1-5-4.3-.1-.2-1.2-1.6-1.2-3s.7-2.1 1-2.4c.3-.3.6-.4.8-.4h.6c.2 0 .4 0 .6.5.2.6.8 2 .9 2.1.1.2.1.3 0 .5-.6 1.2-1.2 1.1-.6 2 .9 1.6 1.7 2.1 3 2.7.2.1.4.1.5-.1.2-.2.7-.8.9-1.1.2-.3.4-.2.6-.1.2.1 1.5.7 1.8.9.3.1.4.2.5.3.1.2.1.9-.1 1.6z"/></svg>`;
-  const contactBlock = `
-    <div class="gfb-contact-fixed">
+  return `
+    <div class="gfb-contact-fixed${isStatic?' gfb-contact-static':''}">
       <span class="gfb-contact-label">للدعم الفني</span>
       <a href="https://wa.me/201223800399" target="_blank" title="واتساب للدعم الفني">${waIcon}</a>
       <div class="gfb-contact-numbers">
@@ -6321,6 +6359,9 @@ function renderGlobalFloatingBar(){
         <a href="https://wa.me/96598937472" target="_blank">0096598937472</a>
       </div>
     </div>`;
+}
+function renderGlobalFloatingBarInner(buttons){
+  const contactBlock = supportContactHtml(false);
   return `
     <div class="gfb-spacer" style="height:70px;"></div>
     <div class="global-floating-bar no-print">
@@ -12332,6 +12373,9 @@ function renderDashboard(app){
     const myPendingIds = new Set(getMyPendingRequests().map(r=>r.id));
     displayList = periodFiltered.filter(r=>myPendingIds.has(r.id));
   }
+  else if(statusFilter==='handed') displayList = periodFiltered.filter(r=>handedFromNames(r).length>0);
+  else if(statusFilter==='review') displayList = periodFiltered.filter(r=>reqCat(r)==='review');
+  else if(statusFilter==='cancelled') displayList = periodFiltered.filter(r=>r.isCancelled);
   else if(STATUS_ORDER[statusFilter]) displayList = periodFiltered.filter(r=>r.status===statusFilter);
 
   // الافتراضي: الأحدث أولاً. وكان الفرز بالرقم التسلسلي وحده، فيخلط
@@ -12369,6 +12413,7 @@ function renderDashboard(app){
     listHtml = `<div class="empty">لا توجد طلبات ضمن هذا الاختيار</div>`;
   } else {
     listHtml = `
+      ${statusLegendHtml()}
       <div class="req-list-scroll-wrap">
         <div class="req-list-inner">
           <div class="req-table-head">
@@ -12403,7 +12448,7 @@ function renderDashboard(app){
             const subNoteText = iAlreadyApproved ? '✓ قمت بالاعتماد' : (isFutureContext ? '⏳ للمتابعة فقط — لم يأتِ دورك بعد' : '');
             const subNoteClass = iAlreadyApproved ? 'note-approved' : 'note-waiting';
             return `
-            <div class="req-card" data-on-click="openRequest" data-on-click-args="${qa([(''+(r.id))])}" style="${r.limitExceeded ? 'border:3px solid var(--red);' : ''}">
+            <div class="req-card" data-on-click="openRequest" data-on-click-args="${qa([(''+(r.id))])}" style="${r.limitExceeded ? 'border:3px solid var(--red);' : ''}${reqStripStyle(r)}">
               <span data-label="رقم الطلب" class="req-field-value req-field-wrap" style="font-weight:700;">${r.number || `<span style="color:var(--amber);font-size:12px;">⏳ قيد المراجعة${reviewSecondsLeft(r)>0 ? ` <span data-countdown="${r.id}" dir="ltr" style="unicode-bidi:isolate;font-variant-numeric:tabular-nums;">${fmtCountdown(reviewSecondsLeft(r))}</span>` : ''}</span>`}</span>
               <span data-label="الموضوع" class="req-field-value req-field-wrap"${r.isCancelled ? ' style="text-decoration:line-through;text-decoration-color:var(--red);text-decoration-thickness:2px;color:var(--muted);"' : ''}>${escH(r.reason)}${r.limitExceeded ? ' <span class="limit-tag">⚠ تجاوز السقف</span>' : ''}</span>
               <span data-label="تاريخ الطلب" class="req-field-value">${r.dateGreg ? `<div>${dmyStr(r.dateGreg)}</div><div style="font-size:11px;color:var(--muted);">${createdTimePart}</div>` : '—'}</span>
@@ -12415,6 +12460,7 @@ function renderDashboard(app){
                   ? `<span class="badge" style="background:var(--amber-bg);color:var(--amber);" title="لم يُرسل نهائياً بعد — لا يراه المعتمدون">قيد المراجعة</span>`
                   : statusBadge(r.status, r.isCancelled, myTurn, !subNoteText, myTurn && isOverdueFor(r, state.user.id))}${r.fastTracked ? `<span class="badge" style="background:var(--amber-bg);color:var(--amber);margin-top:3px;font-size:10.5px;" title="تخطّى بعض خطوات الاعتماد لأن المبلغ ضمن الحد الأدنى">⚡ حد أدنى</span>` : ''}${(isUnspecifiedBudget(r.budgetItemId) && !r.isCancelled && r.status!=='rejected' && r.status!=='completed') ? `<span class="badge" style="background:var(--amber-bg);color:var(--amber);margin-top:3px;font-size:10.5px;" title="الصرف متوقف حتى يُسنَد الطلب إلى بند ميزانية">⚠ بند غير محدد</span>` : ''}
                 ${subNoteText ? `<span class="badge sub-status-note ${subNoteClass}">${subNoteText}</span>` : ''}
+                ${(()=>{ const hf = handedFromNames(r); return hf.length ? `<span class="badge handed-badge" title="أُسند إليك قرار ${escH(hf.join('، '))} في هذا الطلب">🤝 مُسنَد إليك من ${escH(hf.join('، '))}</span>` : ''; })()}
               </span>
             </div>`;
           }).join('')}
@@ -12429,12 +12475,15 @@ function renderDashboard(app){
   const pendingCount = periodFiltered.filter(r=>!['completed','rejected'].includes(r.status)).length;
   const paidSum = periodFiltered.filter(r=>r.status==='completed').reduce((s,r)=>s+Number(r.totalAmount||0),0);
 
+  const D = k=>REQ_CAT[k].dot+' ';
   const statusOptions = [
     ['all','كل الحالات'],
     ...(['dept_manager','senior_manager','executive_manager','accountant','cfo'].includes(role) ? [['mypending','بانتظار اعتمادك أنت']] : []),
-    ['pending_decision','قيد اعتماد القرار'],['pending_transfer_request','بانتظار طلب التحويل (المحاسب)'],
-    ['pending_transfer_approval','بانتظار اعتماد التحويل (المدير المالي)'],['pending_disbursement','بانتظار إتمام الصرف (المحاسب)'],
-    ['completed','تم الصرف'],['rejected','مرفوض']
+    ['handed', D('handed')+'مسندة إليّ'],
+    ['review', D('review')+'قيد المراجعة (لم تُرسل نهائياً)'],
+    ['pending_decision', D('decision')+'قيد اعتماد القرار'],['pending_transfer_request', D('finance')+'بانتظار طلب التحويل (المحاسب)'],
+    ['pending_transfer_approval', D('finance')+'بانتظار اعتماد التحويل (المدير المالي)'],['pending_disbursement', D('finance')+'بانتظار إتمام الصرف (المحاسب)'],
+    ['completed', D('done')+'تم الصرف'],['rejected', D('rejected')+'مرفوض'],['cancelled', D('cancelled')+'ملغاة']
   ];
   const periodBar = `
     <div class="dash-filt no-print">
@@ -12514,12 +12563,12 @@ function oldCoReqList(){
 function openOldRequests(){ state.view='oldRequests'; render(); window.scrollTo(0,0); }
 function renderOldRequests(app){
   app.innerHTML = `<h1>طلباتي في شركات أخرى</h1>
-    <p class="sub">طلباتك في شركات لم تعد مرتبطاً بها بعد انتقالك منها. تُتابَع من هنا لتكتمل، ويبقى الاسترجاع لمدير النظام.</p>
+    <p class="sub">طلباتك في شركات لم تعد مرتبطاً بها بعد انتقالك منها: تفتحها وتتابعها من هنا، وتبقى خطوات اعتمادها في شركتها الأصلية. الاسترجاع لمدير النظام.</p>
     ${renderOldCoPanel()}`;
 }
 function renderOldCoPanel(){
   const all = oldCoReqList();
-  const f = state.oldReq = state.oldReq || {status:'pending', co:'all', from:'', to:''};
+  const f = state.oldReq = state.oldReq || {status:'all', co:'all', from:'', to:''};
   if(!all.length) return '<div class="empty">لا توجد طلبات في شركات أخرى</div>';
   const coName = id => companyNameOf(id);
   const cos = [...new Set(all.map(r=>r.companyId))];
@@ -12535,7 +12584,7 @@ function renderOldCoPanel(){
     ${list.map(r=>{
       const pe = (r.history||[]).find(h=>h.action==='تم الصرف');
       const pd = pe ? toWesternDigits(pe.time).split(' ')[0].replace(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/,(m,d,mo,y)=>dmyJoin(d.padStart(2,'0'),mo.padStart(2,'0'),y)) : '';
-      return `<div class="req-card" data-on-click="openRequest" data-on-click-args="${qa([(''+(r.id))])}">
+      return `<div class="req-card" data-on-click="openRequest" data-on-click-args="${qa([(''+(r.id))])}" style="${reqStripStyle(r)}">
         <span data-label="رقم الطلب" class="req-field-value req-field-wrap" style="font-weight:700;">${escH(r.number||'قيد المراجعة')}</span>
         <span data-label="الموضوع" class="req-field-value req-field-wrap"${r.isCancelled?' style="text-decoration:line-through;text-decoration-color:var(--red);color:var(--muted);"':''}>${escH(r.reason||'')}<div style="font-size:11px;color:var(--muted);">${escH(coName(r.companyId))}</div></span>
         <span data-label="تاريخ الطلب" class="req-field-value">${r.dateGreg ? dmyStr(r.dateGreg) : '—'}</span>
@@ -12546,14 +12595,13 @@ function renderOldCoPanel(){
       </div>`; }).join('')}
   </div></div>` : '<div class="empty">لا توجد طلبات ضمن هذا الاختيار</div>';
   return `<div class="card no-print">
-    <p class="file-hint">تُفتح الطلبات من هنا وتبقى خطواتها في شركتها الأصلية.</p>
     <div class="dash-filt" style="margin-bottom:10px;">
       <div class="dash-filt-right">
         <div><label>الحالة</label><select data-on-change="#121">
-          <option value="pending" ${f.status==='pending'?'selected':''}>غير معتمدة</option>
-          <option value="done" ${f.status==='done'?'selected':''}>معتمدة (تم الصرف)</option>
-          <option value="cancelled" ${f.status==='cancelled'?'selected':''}>ملغاة</option>
-          <option value="all" ${f.status==='all'?'selected':''}>الكل (تشمل الملغاة)</option></select></div>
+          <option value="all" ${f.status==='all'?'selected':''}>الكل (تشمل الملغاة)</option>
+          <option value="pending" ${f.status==='pending'?'selected':''}>${REQ_CAT.decision.dot} غير معتمدة</option>
+          <option value="done" ${f.status==='done'?'selected':''}>${REQ_CAT.done.dot} معتمدة (تم الصرف)</option>
+          <option value="cancelled" ${f.status==='cancelled'?'selected':''}>${REQ_CAT.cancelled.dot} ملغاة</option></select></div>
         <div><label>الشركة</label><select data-on-change="#122">
           <option value="all">كل الشركات</option>${cos.map(c=>`<option value="${c}" ${f.co===c?'selected':''}>${escH(coName(c))}</option>`).join('')}</select></div>
         <div><label>من تاريخ</label><input type="date" value="${escH(f.from)}" data-on-change="#123"></div>
@@ -12751,7 +12799,7 @@ function renderNewRequest(app){
       </button>
       <button class="btn btn-primary submit-draft-trigger btn-md" ${canSend?'':`disabled title="${noSendTip}"`} data-on-click="submitDraft">${state.editingReqId ? 'حفظ التعديلات' : 'إرسال للاعتماد'}</button>
       <button class="btn btn-ghost btn-md" ${qon('click', state.editingReqId ? [["#25",[]]] : [["discardDraftAndCancel",[]]])}>إلغاء</button>
-      <span class="sticky-total sticky-total-end" id="stickyTotalPreview" title="إجمالي الطلب">0.000 د.ك</span>
+      <div class="sticky-end"><span class="sticky-total sticky-total-end" id="stickyTotalPreview" title="إجمالي الطلب">0.000 د.ك</span>${supportContactHtml(true)}</div>
     </div>
   `;
   updateTotalPreview();
