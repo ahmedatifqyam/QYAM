@@ -5412,7 +5412,7 @@ const REQ_CAT = {
   done:    {c:'#15803d', dot:'🟢', label:'تم الصرف'},
   rejected:{c:'#b91c1c', dot:'🔴', label:'مرفوض'},
   cancelled:{c:'#9ca3af', dot:'⚪', label:'ملغى'},
-  handed:  {c:'#0d9488', dot:'🤝', label:'مُسنَد إليك'}
+  handed:  {c:'#E8A317', dot:'🤝', label:'مسندة إليك'}
 };
 function reqCat(r){
   if(r.isCancelled) return 'cancelled';
@@ -5429,12 +5429,32 @@ function handedFromNames(r){
     .filter(fid=>(r.approvalSteps||[]).some(s=>s.approverId===fid && s.status==='pending'))
     .map(fid=>hoUserName(fid));
 }
-// الشريط الملوّن على يمين بطاقة الطلب، وخط ثانٍ بلون الإسناد للطلب المسنَد إليك
-function reqStripStyle(r){
-  const c = REQ_CAT[reqCat(r)].c;
-  return `border-right:6px solid ${c};` + (handedFromNames(r).length ? `box-shadow:inset -4px 0 0 ${REQ_CAT.handed.c};` : '');
+// الشريط الملوّن على يمين بطاقة الطلب بلون حالته (المسنَد إليك تميّزه شارة اليدين 🤝)
+function reqStripStyle(r){ return `border-right:6px solid ${REQ_CAT[reqCat(r)].c};`; }
+// أزرار الفلتر: مربّع اللون والاسم والعدد، بحد أيمن بلون الحالة وحد أسفل وظل خفيف، وعرض واحد ثابت
+function fbtn(k, label, n, on, act){
+  const c = k ? REQ_CAT[k].c : '';
+  const mark = !k ? '' : k==='handed' ? '<span class="fb-h">🤝</span>' : `<i style="background:${c};"></i>`;
+  const tint = c ? (h=>{ const v=parseInt(h.slice(1),16); return `rgba(${v>>16&255},${v>>8&255},${v&255},.14)`; })(c) : '';
+  const st = (c ? `border-right-color:${c};` : '') + (on && c ? `background:${tint};border-color:${c};` : '');
+  const dis = !on && n===0;
+  return `<button type="button" class="fb${k?'':' fb-neu'}${on?' on':''}" style="${st}" ${dis?'disabled':''} ${qon('click', act)} title="${escH(dis ? 'لا توجد طلبات بهذه الحالة' : on ? 'اضغط مرة أخرى لإلغاء هذا الاختيار' : 'اعرض '+label+' فقط')}">${mark}<span class="fb-l">${escH(label)}</span><span class="fb-n">${Number(n).toLocaleString('en')}</span></button>`;
 }
-function statusLegendHtml(){
+// عرض واحد لكل أزرار الصف: يُقاس أطول زر بعدد من خمس خانات، ويُزاد ١٠٪
+function fitFilterButtons(){
+  const app = document.getElementById('app'); if(!app) return;
+  const bs = [...app.querySelectorAll('.fb')]; if(!bs.length) return;
+  app.style.setProperty('--fbw', 'auto');
+  const saved = bs.map(b=>{ const n = b.querySelector('.fb-n'); const t = n ? n.textContent : ''; if(n) n.textContent = '99,999'; return t; });
+  const w = Math.ceil(Math.max(...bs.map(b=>b.getBoundingClientRect().width)) * 1.1);
+  bs.forEach((b,i)=>{ const n = b.querySelector('.fb-n'); if(n) n.textContent = saved[i]; });
+  if(w>0) app.style.setProperty('--fbw', w+'px');
+}
+function dashAll(){ state.dashOwner = 'all'; state.dashStatusFilter = 'all'; render(); }
+function dashToggleMine(){ state.dashOwner = (state.dashOwner==='mine') ? 'all' : 'mine'; render(); }
+function dashToggleCat(k){ state.dashStatusFilter = (state.dashStatusFilter===k) ? 'all' : k; render(); }
+function dashPickOwner(v){ state.dashOwner = v || 'all'; render(); }
+function statusLegendHtml_unused(){
   return `<div class="status-legend no-print">${['review','decision','finance','done','rejected','cancelled','handed'].map(k=>`<span><i style="background:${REQ_CAT[k].c};"></i>${REQ_CAT[k].label}</span>`).join('')}</div>`;
 }
 function statusBadge(status, isCancelled, isOwnTurn, isBig, overdue){
@@ -6016,6 +6036,7 @@ function render(){
   renderMobileTabs();
   ensureBottomBar();
   scrollActiveTabIntoView();
+  fitFilterButtons();
   reapplyFieldErr();
   refreshNotifIndicators();
   navApplyPadding(); fitNavBleed(); requestAnimationFrame(()=>{ navApplyPadding(); fitNavBleed(); });
@@ -12314,15 +12335,15 @@ function renderDashboard(app){
   visibleRequests = visibleRequests.filter(r=>!isUnderReview(r) || r.createdById===myId);
 
   // مرشّح «صاحب الطلب»: الكل / طلباتي / (لمدير النظام) مستخدم بعينه
+  const visAllOwners = visibleRequests.slice();
   const ownerCandidates = [];
   { const seenO = {}; visibleRequests.forEach(r=>{ if(r.createdById && !seenO[r.createdById]){ seenO[r.createdById]=1; ownerCandidates.push({id:r.createdById, name:r.createdBy||r.createdById}); } }); }
   const ownerSel = state.dashOwner || 'all';
   if(ownerSel==='mine') visibleRequests = visibleRequests.filter(r=>r.createdById===myId);
   else if(ownerSel!=='all') visibleRequests = visibleRequests.filter(r=>r.createdById===ownerSel);
-  const ownerFilterHtml = `<div class="dash-status"><label>عرض طلبات</label>
-    <select data-on-change="#112">
-      <option value="all" ${ownerSel==='all'?'selected':''}>الكل</option>
-      <option value="mine" ${ownerSel==='mine'?'selected':''}>طلباتي</option>
+  const ownerFilterHtml = role!=='admin' ? '' : `<div class="dash-status"><label>طلبات موظف</label>
+    <select data-on-change="dashPickOwner" data-on-change-args="${qa([QA.v])}">
+      <option value="all" ${(ownerSel==='all'||ownerSel==='mine')?'selected':''}>— اختر الموظف —</option>
       ${role==='admin' ? ownerCandidates.filter(o=>o.id!==myId).sort((a,b)=>String(a.name).localeCompare(String(b.name),'ar')).map(o=>`<option value="${escH(o.id)}" ${ownerSel===o.id?'selected':''}>${escH(o.name)}</option>`).join('') : ''}
     </select></div>`;
 
@@ -12347,23 +12368,19 @@ function renderDashboard(app){
   const yearsList = Array.from(years).sort((a,b)=>b-a);
   const monthNames = ['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
 
-  let periodFiltered = visibleRequests;
-  if(periodMode==='year'){
-    periodFiltered = visibleRequests.filter(r=>r.createdAtRaw && new Date(r.createdAtRaw).getFullYear()===Number(periodYear));
-  } else if(periodMode==='month'){
-    periodFiltered = visibleRequests.filter(r=>{
-      if(!r.createdAtRaw) return false;
-      const d = new Date(r.createdAtRaw);
-      return d.getFullYear()===Number(periodYear) && (d.getMonth()+1)===Number(periodMonth);
-    });
-  } else if(periodMode==='week'){
-    const dayOfWeek = now.getDay(); // 0=Sunday
-    const weekStart = new Date(now); weekStart.setHours(0,0,0,0); weekStart.setDate(now.getDate()-dayOfWeek);
-    periodFiltered = visibleRequests.filter(r=>r.createdAtRaw && new Date(r.createdAtRaw) >= weekStart);
-  } else if(periodMode==='last15'){
-    const cutoff = new Date(now); cutoff.setHours(0,0,0,0); cutoff.setDate(now.getDate()-15);
-    periodFiltered = visibleRequests.filter(r=>r.createdAtRaw && new Date(r.createdAtRaw) >= cutoff);
-  }
+  const weekStart = new Date(now); weekStart.setHours(0,0,0,0); weekStart.setDate(now.getDate()-now.getDay());   // 0=الأحد
+  const cutoff15 = new Date(now); cutoff15.setHours(0,0,0,0); cutoff15.setDate(now.getDate()-15);
+  const inPeriod = r=>{
+    if(periodMode==='all') return true;
+    if(!r.createdAtRaw) return false;
+    const d = new Date(r.createdAtRaw);
+    if(periodMode==='year') return d.getFullYear()===Number(periodYear);
+    if(periodMode==='month') return d.getFullYear()===Number(periodYear) && (d.getMonth()+1)===Number(periodMonth);
+    if(periodMode==='week') return d >= weekStart;
+    if(periodMode==='last15') return d >= cutoff15;
+    return true;
+  };
+  const periodFiltered = visibleRequests.filter(inPeriod);
 
   const statusFilter = state.dashStatusFilter || 'all';
   let displayList = periodFiltered;
@@ -12374,8 +12391,7 @@ function renderDashboard(app){
     displayList = periodFiltered.filter(r=>myPendingIds.has(r.id));
   }
   else if(statusFilter==='handed') displayList = periodFiltered.filter(r=>handedFromNames(r).length>0);
-  else if(statusFilter==='review') displayList = periodFiltered.filter(r=>reqCat(r)==='review');
-  else if(statusFilter==='cancelled') displayList = periodFiltered.filter(r=>r.isCancelled);
+  else if(REQ_CAT[statusFilter]) displayList = periodFiltered.filter(r=>reqCat(r)===statusFilter);
   else if(STATUS_ORDER[statusFilter]) displayList = periodFiltered.filter(r=>r.status===statusFilter);
 
   // الافتراضي: الأحدث أولاً. وكان الفرز بالرقم التسلسلي وحده، فيخلط
@@ -12413,7 +12429,6 @@ function renderDashboard(app){
     listHtml = `<div class="empty">لا توجد طلبات ضمن هذا الاختيار</div>`;
   } else {
     listHtml = `
-      ${statusLegendHtml()}
       <div class="req-list-scroll-wrap">
         <div class="req-list-inner">
           <div class="req-table-head">
@@ -12475,16 +12490,7 @@ function renderDashboard(app){
   const pendingCount = periodFiltered.filter(r=>!['completed','rejected'].includes(r.status)).length;
   const paidSum = periodFiltered.filter(r=>r.status==='completed').reduce((s,r)=>s+Number(r.totalAmount||0),0);
 
-  const D = k=>REQ_CAT[k].dot+' ';
-  const statusOptions = [
-    ['all','كل الحالات'],
-    ...(['dept_manager','senior_manager','executive_manager','accountant','cfo'].includes(role) ? [['mypending','بانتظار اعتمادك أنت']] : []),
-    ['handed', D('handed')+'مسندة إليّ'],
-    ['review', D('review')+'قيد المراجعة (لم تُرسل نهائياً)'],
-    ['pending_decision', D('decision')+'قيد اعتماد القرار'],['pending_transfer_request', D('finance')+'بانتظار طلب التحويل (المحاسب)'],
-    ['pending_transfer_approval', D('finance')+'بانتظار اعتماد التحويل (المدير المالي)'],['pending_disbursement', D('finance')+'بانتظار إتمام الصرف (المحاسب)'],
-    ['completed', D('done')+'تم الصرف'],['rejected', D('rejected')+'مرفوض'],['cancelled', D('cancelled')+'ملغاة']
-  ];
+
   const periodBar = `
     <div class="dash-filt no-print">
       <div class="dash-filt-right">
@@ -12511,17 +12517,15 @@ function renderDashboard(app){
           </select>
         </div>` : ''}
       </div>
-      <div class="dash-filt-left">
-        ${ownerFilterHtml}
-        ${statusFilter!=='all' ? `<button class="btn btn-ghost btn-sm" data-on-click="#116" title="يلغي ترشيح الحالة ويعرض كل الطلبات">إظهار الكل</button>` : ''}
-        <div class="dash-status">
-          <label>حالة الطلب</label>
-          <select data-on-change="#118">
-            ${statusOptions.map(([v,l])=>`<option value="${v}" ${statusFilter===v?'selected':''}>${l}</option>`).join('')}
-          </select>
-        </div>
+      <div class="dash-filt-own">
+        ${fbtn('', 'الكل', visAllOwners.filter(inPeriod).length, ownerSel==='all' && statusFilter==='all', [["dashAll",[]]])}
+        ${fbtn('', 'طلباتي', visAllOwners.filter(r=>r.createdById===myId && inPeriod(r)).length, ownerSel==='mine', [["dashToggleMine",[]]])}
       </div>
+      <div class="dash-filt-left">${ownerFilterHtml}</div>
     </div>
+    <div class="fbar no-print">${['review','decision','finance','done','rejected','cancelled','handed'].map(k=>fbtn(k, REQ_CAT[k].label,
+        k==='handed' ? periodFiltered.filter(r=>handedFromNames(r).length>0).length : periodFiltered.filter(r=>reqCat(r)===k).length,
+        statusFilter===k || (k==='done' && statusFilter==='completed'), [["dashToggleCat",[k]]])).join('')}</div>
   `;
 
   const statCards = `
@@ -12560,6 +12564,7 @@ function oldCoReqList(){
   // طلباتي في شركات لم أعد مرتبطاً بها (المرتبط بشركة أخرى يبدّل إليها من محوّل الشركات)
   return state.requests.filter(r=>r.createdById===me && (!meU || !userHasCompany(meU, r.companyId)));
 }
+function oldReqCat(k){ const f = state.oldReq = state.oldReq || {status:'all', co:'all', from:'', to:''}; f.status = (f.status===k || k==='all') ? 'all' : k; render(); }
 function openOldRequests(){ state.view='oldRequests'; render(); window.scrollTo(0,0); }
 function renderOldRequests(app){
   app.innerHTML = `<h1>طلباتي في شركات أخرى</h1>
@@ -12573,11 +12578,12 @@ function renderOldCoPanel(){
   const coName = id => companyNameOf(id);
   const cos = [...new Set(all.map(r=>r.companyId))];
   let list = all.filter(r=> f.co==='all' || r.companyId===f.co);
-  if(f.status==='pending') list = list.filter(r=>!r.isCancelled && !['completed','rejected'].includes(r.status));
-  else if(f.status==='done') list = list.filter(r=>!r.isCancelled && r.status==='completed');
-  else if(f.status==='cancelled') list = list.filter(r=>r.isCancelled);
   if(f.from) list = list.filter(r=>r.createdAtRaw && String(r.createdAtRaw).slice(0,10) >= f.from);
   if(f.to) list = list.filter(r=>r.createdAtRaw && String(r.createdAtRaw).slice(0,10) <= f.to);
+  if(!(f.status==='all' || REQ_CAT[f.status])) f.status = 'all';      // قيم القائمة القديمة
+  const catCount = k=>list.filter(r=>reqCat(r)===k).length;
+  const statusBtns = `<div class="fbar">${fbtn('', 'الكل', list.length, f.status==='all', [["oldReqCat",["all"]]])}${['review','decision','finance','done','rejected','cancelled'].map(k=>fbtn(k, REQ_CAT[k].label, catCount(k), f.status===k, [["oldReqCat",[k]]])).join('')}</div>`;
+  if(REQ_CAT[f.status]) list = list.filter(r=>reqCat(r)===f.status);
   list.sort((a,b)=>tsOf(b.createdAtRaw)-tsOf(a.createdAtRaw));
   const cards = list.length ? `<div class="req-list-scroll-wrap"><div class="req-list-inner">
     <div class="req-table-head"><span>رقم الطلب</span><span>موضوع الطلب</span><span>تاريخ الطلب</span><span>تاريخ الصرف</span><span>المستفيدون</span><span>المبلغ</span><span>الحالة</span></div>
@@ -12597,17 +12603,13 @@ function renderOldCoPanel(){
   return `<div class="card no-print">
     <div class="dash-filt" style="margin-bottom:10px;">
       <div class="dash-filt-right">
-        <div><label>الحالة</label><select data-on-change="#121">
-          <option value="all" ${f.status==='all'?'selected':''}>الكل (تشمل الملغاة)</option>
-          <option value="pending" ${f.status==='pending'?'selected':''}>${REQ_CAT.decision.dot} غير معتمدة</option>
-          <option value="done" ${f.status==='done'?'selected':''}>${REQ_CAT.done.dot} معتمدة (تم الصرف)</option>
-          <option value="cancelled" ${f.status==='cancelled'?'selected':''}>${REQ_CAT.cancelled.dot} ملغاة</option></select></div>
         <div><label>الشركة</label><select data-on-change="#122">
           <option value="all">كل الشركات</option>${cos.map(c=>`<option value="${c}" ${f.co===c?'selected':''}>${escH(coName(c))}</option>`).join('')}</select></div>
         <div><label>من تاريخ</label><input type="date" value="${escH(f.from)}" data-on-change="#123"></div>
         <div><label>إلى تاريخ</label><input type="date" value="${escH(f.to)}" data-on-change="#124"></div>
       </div>
     </div>
+    ${statusBtns}
     ${cards}
   </div>`;
 }

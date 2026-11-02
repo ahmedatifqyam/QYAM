@@ -153,7 +153,24 @@
   .status-legend{display:flex;flex-wrap:wrap;gap:6px 16px;margin:0 0 8px;font-size:12px;color:var(--muted);}
   .status-legend span{display:inline-flex;align-items:center;gap:5px;}
   .status-legend i{display:inline-block;width:12px;height:12px;border-radius:3px;}
-  .req-card .badge.handed-badge,.badge.handed-badge{background:#ccfbf1;color:#0f766e;border:1px solid #5eead4;margin-top:3px;font-size:10.5px;white-space:normal;line-height:1.35;text-overflow:clip;}
+  .req-card .badge.handed-badge,.badge.handed-badge{background:#FEF3C7;color:#92400E;border:1px solid #F5D27A;margin-top:3px;font-size:10.5px;white-space:normal;line-height:1.35;text-overflow:clip;}
+  /* أزرار فلتر الطلبات: مربّع اللون والاسم والعدد، حد أيمن (بلون الحالة) وحد أسفل وظل خفيف، ارتفاع ٣٠ (استثناء مقصود من قاعدة ٤٠) وعرض واحد ثابت يُقاس على أطول زر */
+  .dash-filt{justify-content:flex-start;}
+  .dash-filt-left{margin-right:auto;}
+  .dash-filt-own{display:flex;gap:6px;align-items:flex-end;}
+  .fbar{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 12px;}
+  .fb{height:30px;width:var(--fbw,auto);box-sizing:border-box;display:inline-flex;align-items:flex-end;gap:7px;padding:0 10px 4px;line-height:1.2;
+    background:#fff;border:0;border-right:2px solid #CFCBBE;border-bottom:2px solid #CFCBBE;border-radius:6px;box-shadow:0 1px 3px rgba(0,0,0,.10);
+    font-family:inherit;font-size:13px;color:var(--text);font-weight:600;white-space:nowrap;cursor:pointer;flex:0 0 auto;}
+  .fb i{display:inline-block;width:11px;height:11px;border-radius:3px;flex:0 0 11px;margin-bottom:2px;}
+  .fb .fb-h{font-size:13px;line-height:1;}
+  .fb .fb-n{margin-right:auto;font-weight:800;color:var(--ink);}
+  .fb.on{font-weight:800;box-shadow:inset 0 1px 3px rgba(0,0,0,.12);}
+  .fb:disabled{opacity:.45;cursor:default;}
+  .fb.fb-neu.on{background:var(--ink);color:#fff;border-color:#0f1820;}
+  .fb.fb-neu.on .fb-n{color:#fff;}
+  .fb:hover:not(:disabled):not(.on){background:#FAF9F5;}
+  @media (max-width:640px){ .fbar .fb,.dash-filt-own .fb{width:calc(50% - 3px);} .dash-filt-own{width:100%;} }   /* الهاتف: زرّان في كل سطر */
   .tab-count{display:inline-block;min-width:18px;padding:0 6px;border-radius:9px;background:#D4AF37;color:#1B2733;font-size:11px;font-weight:700;line-height:18px;margin-right:4px;text-align:center;}
   .admin-nav-item:hover{background:rgba(255,255,255,.08);color:#fff;}
   .admin-nav-item.active{background:rgba(255,255,255,.13);color:#fff;font-weight:600;border-right-color:#D4AF37;}
@@ -1283,6 +1300,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.0.3/qrcode.min.js"></script>
-<script src="app.js?v=92c209e1f6"></script>
+<script src="app.js?v=76dff45a2b"></script>
 </body>
 </html>
