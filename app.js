@@ -134,11 +134,11 @@ const QH = {
   54: function(event){ state.analyticsYear=this.value; render(); },
   55: function(event){ state.analyticsMonth=this.value; render(); },
   56: function(event){ state.hoReject=null;render(); },
-  57: function(event){ state.hoForm.fromId=this.value;render(); },
-  58: function(event){ state.hoForm.scope='all';render(); },
-  59: function(event){ state.hoForm.scope='some';render(); },
+  57: function(event){ hoSyncForm(); state.hoForm.fromId=this.value; state.hoForm.checked=[]; render(); },
+  58: function(event){ hoSyncForm(); state.hoForm.scope='all';render(); },
+  59: function(event){ hoSyncForm(); state.hoForm.scope='some';render(); },
   60: function(event){ state.hoForm=null;render(); },
-  61: function(event){ state.hoForm={scope:'all',reason:'leave',needsApproval:true,fromId:''};render(); },
+  61: function(event){ state.hoForm={scope:'all',reason:'leave',needsApproval:true,fromId:'',onBehalf:true};render(); },
   62: function(event){ state.hoForm={scope:'all',reason:'vacation'};render(); },
   63: function(event){ if(event.target===this) closeSuspendCheck(); },
   64: function(event, __QP0__){ state.suspendCheck=null; state.hoForm={scope:'all',reason:'leave',needsApproval:true,fromId:(''+__QP0__)}; state.editingUserId=null; state.view='handovers'; render(); },
@@ -233,7 +233,7 @@ function netEnd(){
 // عدّاد الكتابات: التحديث التلقائي يُهمَل إن تزامن مع حفظ، لأن بياناته قد تكون أقدم من الحفظ نفسه
 // (كان يعيد الطلب على الشاشة لحالته السابقة فيضغط المستخدم مرة ثانية ويتكرر السجل)
 window._wSeq = 0; window._wInFlight = 0;
-const READ_RPCS = ['/rpc/qy_log_event','/rpc/qy_users_private','/rpc/qy_people_names','/rpc/qy_budget_figures','/rpc/resolve_login_email','/rpc/qy_login_suspended','/rpc/verify_request'];
+const READ_RPCS = ['/rpc/qy_log_event','/rpc/qy_users_private','/rpc/qy_people_names','/rpc/qy_my_company_names','/rpc/qy_budget_figures','/rpc/resolve_login_email','/rpc/qy_login_suspended','/rpc/verify_request'];
 function trackedFetch(...args){
   const silent = window._netSilent;
   if(!silent) netStart();
@@ -594,6 +594,15 @@ async function loadPeopleNames(){
   }catch(e){}
 }
 function userById(id){ return (state.users||[]).find(u=>u.id===id) || (state.extraUsers||[]).find(u=>u.id===id) || null; }
+// أسماء شركات طلباتي التي لم أعد مرتبطاً بها: من الخادم (كانت تظهر برمزها)
+async function loadMyCompanyNames(){
+  try{
+    const r = await db.rpc('qy_my_company_names');
+    if(r.error || !r.data) return;
+    state.companyNames = {}; r.data.forEach(x=>{ state.companyNames[x.id] = x.name_ar; });
+  }catch(e){}
+}
+function companyNameOf(id){ return ((state.companies||[]).find(c=>c.id===id)||{}).nameAr || (state.companyNames||{})[id] || 'شركة لم تعد مرتبطاً بها'; }
 // يدمج البيانات الشخصية: من الدالة الآمنة إن وُجدت، وإلا (قاعدة لم تُحدَّث بعد) من الأعمدة مباشرة كما كان
 async function mergeUserPrivate(){
   try{
@@ -677,7 +686,7 @@ async function loadAll(){
   state.resetRequests  = d(16).map(r=>({id:r.id, phone:r.phone, userId:r.user_id, companyId:r.company_id,
     status:r.status, requestedAt:r.requested_at, handledBy:r.handled_by, handledAt:r.handled_at}));
   state.pagePerms = d(17);
-  await Promise.all([loadRecurring(), mergeUserPrivate(), loadPeopleNames()]);
+  await Promise.all([loadRecurring(), mergeUserPrivate(), loadPeopleNames(), loadMyCompanyNames()]);
   loadBudgetSums();
 }
 
@@ -729,7 +738,7 @@ function userIsTyping(){
 }
 function isSafeToRerender(){
   if(state.rejectModalReqId || state.pendingDelete || state.manualSignReqId || state.transferFormReqId || state.filePreviewModal) return false;
-  if(!['dashboard','detail','analytics','cancelledArchive','duplicateList'].includes(state.view)) return false;
+  if(!['dashboard','detail','analytics','cancelledArchive','budgetReport','duplicateList','monitor'].includes(state.view)) return false;
   if(userIsTyping()) return false;
   return true;
 }
@@ -801,6 +810,8 @@ function userCenterLabel(){
   return state.user.role==='admin' ? '' : 'الإدارة';
 }
 function refreshBaseTitle(){ const co = currentCompanyName(); BASE_TITLE = systemName() + (co ? ' - ' + co : ''); }
+// موقع الاختبار يُعرف من قاعدة بياناته: تظهر شارة «نسخة تجريبية» فوق اسم النظام، ولا تظهر في النظام الحقيقي
+function isTestDb(){ return dbProjectRef()==='xisaigwntqeowathxpsr'; }
 function dbProjectRef(){ try{ return new URL(SUPABASE_URL).hostname.split('.')[0]; }catch(e){ return ''; } }
 window._dbLastOk = true;
 function copyDbRef(){
@@ -833,7 +844,7 @@ function renderBrand(){
   const coText = co ? co + (center ? ' — ' + center : '') : '';
   const coLogoSrc = (state.user && cc && cc.brandLogo) ? cc.brandLogo : '';
   box.innerHTML = `
-    <div class="brand-group">${slot(systemLogo(),'brand-logo','أضف شعار النظام')}<span class="brand-name" title="${escH(sysName)}">${escH(sysName)}</span></div>
+    <div class="brand-group">${slot(systemLogo(),'brand-logo','أضف شعار النظام')}<span class="brand-name-col">${isTestDb() ? '<span class="test-badge" title="نسخة تجريبية ببيانات وهمية — ليست النظام الحقيقي">نسخة تجريبية</span>' : ''}<span class="brand-name" title="${escH(sysName)}">${escH(sysName)}</span></span></div>
     ${coText || coLogoSrc ? `<span class="brand-sep"></span>
     <div class="brand-group brand-co-group">${slot(coLogoSrc,'brand-cologo','أضف شعار الشركة')}<span class="brand-sub" title="${escH(coText)}"><span class="bs-co">${escH(co||'')}</span>${center ? `<span class="bs-center">${escH(center)}</span>` : ''}</span></div>` : ''}
     <span class="tb-page" id="tbPage"></span>`;
@@ -861,7 +872,7 @@ window.addEventListener('resize', ()=>{ clearTimeout(window._nbT); window._nbT=s
 const PAGE_INTRO = {
   'المنشأة':'الشركات والوحدات والهيكل التنظيمي للمؤسسة.',
   'المستخدمون والصلاحيات':'حسابات المستخدمين وأدوارهم وما يظهر لكل منهم.',
-  'المالية':'بنود الميزانية والإيرادات والتقارير المالية.',
+  'المالية':'بنود الميزانية: إنشاؤها وتعديلها وترتيبها. التقارير في «المتابعة والتقارير».',
   'الهوية والمستندات':'هوية النظام والشركات وترويسة المستندات المطبوعة.',
   'القيود الدورية والإشعارات':'من يُنشئ القوالب الدورية ومن يصله إشعارها.'
 };
@@ -1336,15 +1347,10 @@ function execChartHtml(byMonth, chartH, selMonth){
 function execPickMonth(i){ state.execMonth = (state.execMonth===i) ? null : i; render(); }
 function setExecYear(y){ state.execYear = Number(y); state.execMonth = null; render(); }
 function setAnalyticsTab(t){ state.analyticsTab = t; render(); }
+function openAnalyticsTab(t){ state.analyticsTab = t; state.view = 'analytics'; render(); window.scrollTo(0,0); }
 function openExecDashboard(){ state.analyticsTab = 'exec'; state.view = 'analytics'; render(); }
 // قسما هذه الصفحة — بنفس الصفّ الفاتح الذي في باقي الصفحات
-function analyticsTabsHtml(active){
-  if(!canSeeExec()) return '';
-  return `<div class="adm-subs adm-subs-solo">
-    <button type="button" class="adm-sub${active==='exec'?' active':''}" data-on-click="setAnalyticsTab" data-on-click-args="${qa(["exec"])}">اللوحة التنفيذية</button>
-    <button type="button" class="adm-sub${active==='details'?' active':''}" data-on-click="setAnalyticsTab" data-on-click-args="${qa(["details"])}">التفاصيل المالية</button>
-  </div>`;
-}
+function analyticsTabsHtml(active){ return ''; }   // جزءا التحليلات صارا تبويبين في صف «المتابعة والتقارير» الواحد
 function execBodyHtml(){
   const year = Number(state.execYear || new Date().getFullYear());
   const d = computeExecData(year);
@@ -2387,7 +2393,7 @@ function isCustomRole(role){
   return !['employee','dept_manager','senior_manager','executive_manager','accountant','cfo','admin'].includes(role);
 }
 
-const ADMIN_AREA_VIEWS = ['admin','orgTree','jobLevels','cancelledArchive','sigDesigner','barSettings','securityLog','verifySettings','pathCheck'];
+const ADMIN_AREA_VIEWS = ['admin','orgTree','jobLevels','sigDesigner','barSettings','securityLog','verifySettings','pathCheck'];
 function inAdminArea(){ return !!state.user && state.user.role==='admin' && ADMIN_AREA_VIEWS.includes(state.view); }
 
 // ===================== صلاحيات الصفحات: من يرى أي صفحة وماذا يفعل فيها =====================
@@ -2402,6 +2408,8 @@ const PAGE_CATALOG = [
   {key:'ledger',    label:'دفتر الحركات',      hint:'قراءة: يرى · تعديل: يعكس ويسترد · تحكم كامل: قيد يدوي'},
   {key:'analytics', label:'التحليلات المالية', hint:'عرض فقط'},
   {key:'handovers', label:'الإسناد',            hint:'إسناد المعاملات لزميل عند الغياب أو الانتقال. يظهر دائماً لمن وصله إسناد'},
+  {key:'budgetReport', label:'تقرير الميزانية', hint:'لكل بند: الإيراد والمصروف والمرتبط والرصيد، مع التصدير (عرض فقط). افتراضياً: المالية'},
+  {key:'cancelled', label:'أرشيف الملغاة',     hint:'الطلبات الملغاة: عرضها واسترجاعها لمن يملك الاسترجاع. الحذف النهائي لمدير النظام وحده. افتراضياً: المالية'},
   {key:'monitor',   label:'لوحة المتابعة',     hint:'ما يحدث في النظام: من ينتظر قراره، وما في يد المالية، وآخر الحركات (عرض فقط). افتراضياً: المالية والمدير التنفيذي'}
 ];
 const PAGE_FINANCE_ROLES = ['admin','accountant','cfo'];
@@ -2409,7 +2417,7 @@ function pageDefaultLevel(role, key){
   if(role==='admin') return 'full';
   const fin = PAGE_FINANCE_ROLES.includes(role);
   if(key==='newreq' || key==='editreq' || key==='analytics') return 'full';          // الوضع الحالي: الجميع
-  if(key==='revenues' || key==='ledger' || key==='recurring') return fin ? 'full' : 'none';
+  if(key==='revenues' || key==='ledger' || key==='recurring' || key==='budgetReport' || key==='cancelled') return fin ? 'full' : 'none';
   if(key==='handovers') return role==='employee' ? 'none' : 'full';
   if(key==='monitor') return (fin || role==='executive_manager') ? 'full' : 'none';   // المالية والمدير التنفيذي افتراضياً، ومن يُمنح من صفحة الصلاحيات
   return 'full';
@@ -2436,7 +2444,7 @@ function pageLevel(key){
   return pageDefaultLevel(u.role, key);
 }
 function pageAtLeast(key, need){ return PAGE_LEVEL_RANK[pageLevel(key)] >= PAGE_LEVEL_RANK[need]; }
-const VIEW_PAGE_KEY = {newRequest:'newreq', newRequestChoice:'newreq', analytics:'analytics', revenues:'revenues', recurring:'recurring', ledger:'ledger'};
+const VIEW_PAGE_KEY = {newRequest:'newreq', newRequestChoice:'newreq', analytics:'analytics', revenues:'revenues', recurring:'recurring', ledger:'ledger', budgetReport:'budgetReport', cancelledArchive:'cancelled'};
 function viewAllowed(v){
   const u = state.user; if(!u || u.role==='admin') return true;
   if(v==='newRequest' && state.editingReqId) return pageLevel('editreq')!=='none';   // التعديل له صلاحيته الخاصة
@@ -2589,37 +2597,52 @@ function navClick(tok){ return qhs([["#3",[]]], tok); }
 function injectGroupNav(){
   const app = document.getElementById('app'); if(!app || !state.user) return;
   app.querySelectorAll(':scope > .adm-nav2[data-gn]').forEach(e=>e.remove());
-  if(app.querySelector(':scope > .adm-nav2')) return;            // صفحات لها رأسها الخاص (لوحة التحكم)
+  if(app.querySelector(':scope > .adm-nav2')) return;            // صفحات لها رأسها الخاص (لوحة التحكم: صفّان كما هي)
   const v = state.view;
-  // الصفّان العلويان ثابتان في كل الصفحات (ظهورهما واختفاؤهما يربك العين):
-  // الداكن = صفحات القسم (ولو صفحة واحدة)، والفاتح = أجزاء الصفحة إن وُجدت، وإلا سطر التعريف بالصفحة
-  const mk = (darkHtml, lightHtml)=>{
+  // خارج لوحة التحكم: صف تبويبات واحد بلون واحد (صفحات القسم وأجزاء الصفحة معاً)،
+  // وتحته صف ثابت لسطر التعريف بالصفحة. لا يختفيان في أي صفحة.
+  const mk = darkHtml=>{
     const nav = document.createElement('div'); nav.className='adm-nav2 no-print'; nav.dataset.gn='1';
-    nav.innerHTML = `<div class="adm-tabs2">${darkHtml}</div><div id="secTabs"${lightHtml?' data-keep="1"':''}>${lightHtml||''}</div>`;
+    nav.innerHTML = `<div class="adm-tabs2">${darkHtml}</div><div id="secTabs"></div>`;
     app.insertBefore(nav, app.firstChild);
   };
-  // حسابي: الصف الداكن «حسابي»، وأجزاؤه الخمسة (البطاقات) في الصف الفاتح
+  const t2 = (label, on, attrs, count)=>`<button type="button" class="adm-t2${on?' active':''}" ${attrs||''}>${escH(label)}${count?` <span class="tab-count">${count}</span>`:''}</button>`;
+  // صف أجزاء خاص بالصفحة (الإيرادات، القيود الدورية...): يصعد إلى الصف الواحد، وما بقي (مرشّحات داخل المحتوى) يصير أزراراً متجاورة لا صفاً فاتحاً
+  const solos = [...app.querySelectorAll(':scope > .adm-subs-solo')];
+  const toSeg = el=>{
+    el.classList.remove('adm-subs','adm-subs-solo'); el.classList.add('seg','page-seg');
+    el.querySelectorAll('.adm-sub').forEach(b=>{ const on = b.classList.contains('active'); b.classList.remove('adm-sub','active'); b.classList.add('seg-btn'); if(on) b.classList.add('on'); });
+  };
+  const partsHtml = el=>[...el.querySelectorAll('.adm-sub')].map(b=>{
+    const c = b.cloneNode(true); c.classList.remove('adm-sub'); c.classList.add('adm-t2'); c.removeAttribute('style'); return c.outerHTML; }).join('');
+  // حسابي: أجزاؤه (البطاقات) هي تبويبات الصف
   if(v==='account'){
     const cards = [...app.children].filter(e=>e.classList && e.classList.contains('card') && !e.closest('.modal-overlay'));
-    let light = '';
     if(cards.length>=2){
       const lab = c=>{ const h=c.querySelector('h2'); let t=h?h.textContent.trim():'قسم'; if(/^عرض صفحات/.test(t)) t='عرض الصفحات'; return t; };
       const cur = Math.min(cards.length-1, Math.max(0, Number(state.accountSec||0)));
       cards.forEach((c,i)=>{ c.dataset.accsec = i; c.hidden = (i!==cur); });
-      light = `<div class="adm-subs">${cards.map((c,i)=>`<button type="button" class="adm-sub${i===cur?' active':''}" data-accsec-tab="${i}" data-on-click="setAccountSec" data-on-click-args="${qa([(i)])}">${escH(lab(c))}</button>`).join('')}</div>`;
-    }
-    mk(`<button type="button" class="adm-t2 active" data-on-click="#10">حسابي</button>`, light);
+      mk(cards.map((c,i)=>t2(lab(c), i===cur, `data-accsec-tab="${i}" data-on-click="setAccountSec" data-on-click-args="${qa([(i)])}"`)).join(''));
+    } else mk(t2('حسابي', true, 'data-on-click="#10"'));
+    solos.forEach(toSeg);
     return;
   }
   const sec = navSections().find(x=>!x.admin && x.pages.some(pg=>pg.views.includes(v)));
   if(!sec){
-    // صفحة خارج الأقسام (فحص المسارات، طلبات شركات سابقة بلا طلبات...): الصفّان باسمها، فلا تختلف عن غيرها
+    // صفحة خارج الأقسام (فحص المسارات، طلبات شركات سابقة بلا طلبات...): الصف باسمها، فلا تختلف عن غيرها
     const h = app.querySelector(':scope > h1'); const t = h ? h.textContent.replace(/\s+/g,' ').trim() : '';
-    if(t && v!=='login') mk(`<button type="button" class="adm-t2 active" tabindex="-1">${escH(t)}</button>`, '');
+    if(t && v!=='login') mk(t2(t, true, 'tabindex="-1"'));
+    solos.forEach(toSeg);
     return;
   }
   const isOn = pg => (pg.on!==undefined) ? pg.on : pg.views.includes(v);
-  mk(sec.pages.map(pg=>`<button type="button" class="adm-t2${isOn(pg)?' active':''}" ${qon('click', navClick(pg.js))}>${escH(pg.label)}${pg.count?` <span class="tab-count">${pg.count}</span>`:''}</button>`).join(''), '');
+  if(sec.pages.length===1 && solos.length){
+    // قسم من صفحة واحدة لها أجزاء: الأجزاء هي الصف
+    mk(partsHtml(solos[0])); solos[0].remove(); solos.slice(1).forEach(toSeg);
+    return;
+  }
+  mk(sec.pages.map(pg=>t2(pg.label, isOn(pg), qon('click', navClick(pg.js)), pg.count)).join(''));
+  solos.forEach(toSeg);
 }
 // الصف الفاتح بلا أجزاء: يحمل سطر التعريف بالصفحة (أو ملاحظتها، كملاحظة المعاينة) بدل أن يبقى فارغاً أو يختفي
 function viewNote(){
@@ -2643,7 +2666,7 @@ function fillSecNote(){
   // سطر التعريف هو أول ما بعد الصفّين (يُتخطّى العنوان المنقول للشريط العلوي وزر الرجوع)، لا أي ملاحظة في وسط الصفحة
   const nv = host.closest('.adm-nav2');
   let e = nv ? nv.nextElementSibling : null;
-  while(e && (e.tagName==='H1' || e.classList.contains('adm-head') || e.classList.contains('back-link'))) e = e.nextElementSibling;
+  while(e && (e.tagName==='H1' || e.classList.contains('adm-head') || e.classList.contains('back-link') || e.classList.contains('print-header') || e.classList.contains('page-seg') || (e.tagName!=='P' && getComputedStyle(e).display==='none'))) e = e.nextElementSibling;
   const p = (e && e.tagName==='P' && e.classList.contains('sub')) ? e : null;
   const note = document.createElement('div'); note.className = 'sec-note';
   if(p){ while(p.firstChild) note.appendChild(p.firstChild); p.remove(); note.dataset.moved = '1'; }
@@ -2659,7 +2682,7 @@ function setAccountSec(i){
 // مجموعات الشريط الجانبي القابلة للفتح والإغلاق: المعاملات المالية | لوحة التحكم | المساعدة
 function inFinArea(){
   const v = state.view;
-  if(['dashboard','detail','newRequest','newRequestChoice','duplicateList','printPreview','revenues','recurring','handovers','oldRequests','monitor'].includes(v)) return true;
+  if(['dashboard','detail','newRequest','newRequestChoice','duplicateList','printPreview','revenues','recurring','handovers','oldRequests','monitor','budgetReport','cancelledArchive'].includes(v)) return true;
   return !inAdminArea() && ['ledger','analytics'].includes(v);
 }
 function inHelpArea(){ return ['guide','sitemap'].includes(state.view); }
@@ -2724,7 +2747,15 @@ function navSections(){
   const rep = [];
   if(canSeeMonitor()) rep.push({label:'لوحة المتابعة', views:['monitor'], js:[["openMonitor",[]]]});
   if(pageLevel('ledger')!=='none') rep.push({label:'دفتر الحركات', views:['ledger'], js:[["#6",[]]]});
-  if(pageLevel('analytics')!=='none') rep.push({label:'التحليلات المالية', views:['analytics'], js:[["#7",[]]]});
+  if(pageLevel('analytics')!=='none'){
+    if(canSeeExec()){
+      const at = state.analyticsTab || 'exec';
+      rep.push({label:'اللوحة التنفيذية', views:['analytics'], on: v==='analytics' && at==='exec', js:[["openAnalyticsTab",["exec"]]]});
+      rep.push({label:'التفاصيل المالية', views:['analytics'], on: v==='analytics' && at==='details', js:[["openAnalyticsTab",["details"]]]});
+    } else rep.push({label:'التحليلات المالية', views:['analytics'], js:[["#7",[]]]});
+  }
+  if(pageLevel('budgetReport')!=='none') rep.push({label:'تقرير الميزانية', views:['budgetReport'], js:[["openBudgetReport",[]]]});
+  if(pageLevel('cancelled')!=='none') rep.push({label:'أرشيف الملغاة', views:['cancelledArchive'], js:[["openCancelledArchive",[]]]});
   if(rep.length) out.push({key:'rep', ico:'📊', label:'المتابعة والتقارير', pages:rep});
   if(u.role==='admin') out.push({key:'admin', ico:'⚙️', label:'لوحة التحكم', admin:true, pages:[]});
   else out.push({key:'account', ico:'👤', label:'حسابي', pages:[{label:'حسابي', views:['account'], js:[["#10",[]]]}]});
@@ -5905,6 +5936,7 @@ function render(){
   else if(state.view==='duplicateList') renderDuplicateList(app);
   else if(state.view==='printPreview'){ renderPrintPreview(app); }
   else if(state.view==='cancelledArchive') renderCancelledArchive(app);
+  else if(state.view==='budgetReport') renderBudgetReportPage(app);
   else if(state.view==='ledger') renderLedger(app);
   else if(state.view==='revenues') renderRevenues(app);
   else if(state.view==='recurring') renderRecurring(app);
@@ -6519,11 +6551,16 @@ function renderHandovers(app){
   const f = state.hoForm;
   let form = '';
   if(f){
-    const fromId = isAdmin && f.fromId ? f.fromId : me.id;
-    const myReqs = state.requests.filter(r=>r.companyId===state.currentCompanyId && !r.isCancelled && r.status!=='completed' && r.status!=='rejected' && (r.approvalSteps||[]).some(s=>s.approverId===fromId && s.status==='pending'));
+    // «نيابةً عن موظف»: الطلبات تُحسب للموظف المختار في الخانة نفسها، ولا شيء قبل اختياره
+    const onBehalf = isAdmin && !!f.onBehalf;
+    const fromId = onBehalf ? (f.fromId||'') : me.id;
+    const fromName = fromId ? hoUserName(fromId) : '';
+    const myReqs = !fromId ? [] : state.requests.filter(r=>r.companyId===state.currentCompanyId && !r.isCancelled && r.status!=='completed' && r.status!=='rejected' && (r.approvalSteps||[]).some(s=>s.approverId===fromId && s.status==='pending'));
+    const chk = new Set(f.checked||[]);
     form = `<div class="card flow" style="margin-bottom:14px;">
       <h2 style="margin:0 0 6px;font-size:15px;">إسناد جديد</h2>
-      ${isAdmin ? `<div><label>إسناد نيابةً عن</label><select id="hoFrom" data-on-change="#57">
+      ${onBehalf ? `<div><label>إسناد نيابةً عن <span style="color:var(--red);">*</span></label><select id="hoFrom" data-on-change="#57">
+        <option value="">— اختر الموظف —</option>
         ${hoCompanyUsers([]).map(u=>`<option value="${escH(u.id)}" ${u.id===fromId?'selected':''}>${escH(u.name)} — ${escH(findRole(u.role).name)}</option>`).join('')}</select></div>` : ''}
       <div class="row">
         <div><label>المستلِم</label><select id="hoTo"><option value="">— اختر —</option>
@@ -6537,7 +6574,7 @@ function renderHandovers(app){
       <div><label>النطاق</label>
         <label style="display:flex;gap:6px;align-items:center;"><input type="radio" name="hoScope" value="all" ${f.scope!=='some'?'checked':''} style="width:auto;" data-on-change="#58"> كل المعاملات المعلّقة والقادمة</label>
         <label style="display:flex;gap:6px;align-items:center;"><input type="radio" name="hoScope" value="some" ${f.scope==='some'?'checked':''} style="width:auto;" data-on-change="#59"> طلبات محددة فقط</label>
-        ${f.scope==='some' ? (myReqs.length ? myReqs.map(r=>`<label style="display:flex;gap:6px;align-items:center;margin-right:20px;"><input type="checkbox" class="hoReqChk" value="${escH(r.id)}" style="width:auto;"> ${escH(r.number||'قيد المراجعة')} — ${escH(r.reason)} — ${fmtKWDPlain(r.totalAmount)} د.ك</label>`).join('') : '<p class="file-hint">لا توجد طلبات معلّقة بانتظار هذا الشخص حالياً.</p>') : ''}
+        ${f.scope==='some' ? (!fromId ? '<p class="file-hint">اختر الموظف أولاً لتظهر الطلبات التي تنتظر قراره.</p>' : myReqs.length ? myReqs.map(r=>`<label style="display:flex;gap:6px;align-items:center;margin-right:20px;"><input type="checkbox" class="hoReqChk" value="${escH(r.id)}" style="width:auto;" ${chk.has(r.id)?'checked':''}> ${escH(r.number||'قيد المراجعة')} — ${escH(r.reason)} — ${fmtKWDPlain(r.totalAmount)}</label>`).join('') : `<p class="file-hint">لا توجد طلبات تنتظر قرار ${escH(fromName)} الآن. الإسناد يخص الطلبات التي يعتمدها الشخص؛ ومن لا يعتمد طلبات (كالموظف) لا تظهر له طلبات هنا.</p>`) : ''}
       </div>
       <label style="display:flex;gap:6px;align-items:center;margin-top:8px;"><input id="hoNeedsApproval" type="checkbox" ${f.needsApproval===false?'':'checked'} style="width:auto;"> يتطلب موافقة المستلِم (إن أُلغي الخيار يسري الإسناد فوراً)</label>
       <div><label>ملاحظة (اختياري${isAdmin?'، واكتب السبب إن كان الإسناد طارئاً':''})</label><input id="hoNote" type="text" maxlength="200" value="${escH(f.note||'')}"></div>
@@ -6556,10 +6593,18 @@ function renderHandovers(app){
     ${sec('إسنادات أنشأتها', mineAll, 'لم تُنشئ أي إسناد.')}
     ${isAdmin ? sec('كل إسنادات الشركة (لمدير النظام)', others, 'لا توجد إسنادات أخرى.') : ''}`;
 }
+// قيم النموذج قبل إعادة رسمه (تغيير النطاق أو الموظف) حتى لا تُمسح الحقول المختارة
+function hoSyncForm(){
+  const f = state.hoForm; if(!f) return;
+  const val = id=>{ const e = document.getElementById(id); return e ? e.value : undefined; };
+  ['toId:hoTo','reason:hoReason','fromDate:hoFromDate','toDate:hoToDate','note:hoNote'].forEach(x=>{ const [k,id] = x.split(':'); const v = val(id); if(v!==undefined) f[k] = v; });
+  const na = document.getElementById('hoNeedsApproval'); if(na) f.needsApproval = na.checked;
+  if(document.querySelector('.hoReqChk')) f.checked = [...document.querySelectorAll('.hoReqChk:checked')].map(x=>x.value);   // تبقى الاختيارات وإن أُخفيت القائمة مؤقتاً
+}
 async function hoCreate(){
   const me = state.user, isAdmin = me.role==='admin';
   const f = state.hoForm; if(!f) return;
-  const fromId = isAdmin ? ((document.getElementById('hoFrom')||{}).value || f.fromId || '') : me.id;
+  const fromId = (isAdmin && f.onBehalf) ? ((document.getElementById('hoFrom')||{}).value || '') : me.id;
   const toId = document.getElementById('hoTo').value;
   const reason = document.getElementById('hoReason').value;
   const fromDate = document.getElementById('hoFromDate').value || hoToday();
@@ -6568,8 +6613,8 @@ async function hoCreate(){
   const ids = scopeSome ? [...document.querySelectorAll('.hoReqChk:checked')].map(x=>x.value) : null;
   const needs = document.getElementById('hoNeedsApproval').checked;
   const note = document.getElementById('hoNote').value.trim();
-  if(!fromId){ showToast('اختر الموظف الذي يُسند عنه','error'); return; }
-  if(!toId){ showToast('اختر المستلِم','error'); return; }
+  if(!fromId){ fieldErr(document.getElementById('hoFrom'), 'اختر الموظف الذي يُسند عنه'); return; }
+  if(!toId){ fieldErr(document.getElementById('hoTo'), 'اختر المستلِم'); return; }
   if(toId===fromId){ showToast('لا يصح الإسناد لنفسه','error'); return; }
   if(toDate && toDate<fromDate){ showToast('تاريخ النهاية قبل البداية','error'); return; }
   if(scopeSome && !ids.length){ showToast('اختر طلباً واحداً على الأقل أو غيّر النطاق إلى «الكل»','error'); return; }
@@ -8086,7 +8131,7 @@ function renderCancelledArchive(app){
   const rows = cancelled.map(r=>{
     const canceller = state.users.find(u=>u.id===r.cancelledById);
     const cd = r.cancelledAt ? new Date(r.cancelledAt) : null;
-    const dateStr = cd ? `${String(cd.getDate()).padStart(2,'0')}/${String(cd.getMonth()+1).padStart(2,'0')}/${cd.getFullYear()}` : '—';
+    const dateStr = cd ? dmyJoin(String(cd.getDate()).padStart(2,'0'), String(cd.getMonth()+1).padStart(2,'0'), cd.getFullYear()) : '—';
     return `
       <div class="list-item">
         <div class="li-main">
@@ -8096,8 +8141,8 @@ function renderCancelledArchive(app){
         </div>
         <div class="actions-row" style="margin:0;">
           <button class="btn btn-ghost btn-xs" data-on-click="openRequest" data-on-click-args="${qa([(''+(r.id))])}">عرض</button>
-          ${canRestoreReq(r) ? `<button class="btn btn-approve btn-sm" data-on-click="restoreRequest" data-on-click-args="${qa([(''+(r.id))])}">استرجاع</button>` : ''}
-          ${state.user.role==='admin' ? `<button class="btn btn-reject btn-sm" data-on-click="deleteRequestPermanently" data-on-click-args="${qa([(''+(r.id))])}" title="يُمحى من قاعدة البيانات ولا يُسترجع">حذف نهائي</button>` : ''}
+          ${canRestoreReq(r) ? `<button class="btn btn-approve btn-sm" data-on-click="restoreRequest" data-on-click-args="${qa([(''+(r.id))])}">استرجاع</button>` : `<button class="btn btn-approve btn-sm" disabled title="الاسترجاع ليس من صلاحيتك على هذا الطلب">استرجاع</button>`}
+          ${state.user.role==='admin' ? `<button class="btn btn-reject btn-sm" data-on-click="deleteRequestPermanently" data-on-click-args="${qa([(''+(r.id))])}" title="يُمحى من قاعدة البيانات ولا يُسترجع">حذف نهائي</button>` : `<button class="btn btn-reject btn-sm" disabled title="الحذف النهائي لمدير النظام وحده">حذف نهائي</button>`}
         </div>
       </div>`;
   }).join('');
@@ -8126,9 +8171,8 @@ const ADMIN_NAV = [
   ]},
   // ٣ المالية — المال: تخطيطه وصرفه وتحليله
   {gkey:'finance', tab:'المالية', cat:'المالية', items:[
-    {key:'budgetItems', label:'بنود الميزانية', tab:'البنود', kind:'tab'},
-    {key:'budgetReport', label:'تقرير الميزانية', tab:'التقرير', kind:'tab'},
-    {key:'cancelledArchive', label:'أرشيف الطلبات الملغاة', tab:'أرشيف الملغاة', kind:'view'}
+    {key:'budgetItems', label:'بنود الميزانية', tab:'البنود', kind:'tab'}
+    // تقرير الميزانية وأرشيف الملغاة انتقلا إلى «المتابعة والتقارير» (للمالية ومدير النظام)
   ]},
   // ٤ الهوية والمستندات — كيف يبدو النظام على الشاشة وعلى الورق
   {gkey:'brand', tab:'الهوية والمستندات', cat:'الهوية والمستندات', items:[
@@ -8230,6 +8274,7 @@ function setPageSec(key, i){
 function applyPageSections(){ applyPageSectionsInner(); fillSecNote(); }
 function applyPageSectionsInner(){
   const host = document.getElementById('secTabs');
+  if(host && host.closest('.adm-nav2[data-gn]')) return;      // خارج لوحة التحكم: الصف الثاني لسطر التعريف وحده
   if(host && !host.dataset.keep){
     const note = host.querySelector('.sec-note');
     if(note && note.dataset.moved){ const p = document.createElement('p'); p.className = 'sub page-intro'; while(note.firstChild) p.appendChild(note.firstChild); const nv = host.closest('.adm-nav2'); if(nv) nv.after(p); }
@@ -8727,6 +8772,13 @@ function exportBudgetReportCSV(){
 }
 
 
+function openBudgetReport(){ state.view = 'budgetReport'; render(); window.scrollTo(0,0); }
+function openCancelledArchive(){ state.view = 'cancelledArchive'; render(); window.scrollTo(0,0); }
+function renderBudgetReportPage(app){
+  app.innerHTML = `<h1>تقرير الميزانية</h1>
+    <p class="sub">لكل بند: الإيراد والمصروف الفعلي والمرتبط وقيد القرار والرصيد. اضغط ▶ بجوار البند لفتح بنوده الفرعية.</p>
+    ${renderBudgetReportTab()}`;
+}
 function renderBudgetReportTab(){
   const allItems = (state.budgetItems||[]).filter(b=>b.company_id===state.currentCompanyId);
   const types = [...new Set(allItems.map(b=>b.type))];
@@ -12469,7 +12521,7 @@ function renderOldCoPanel(){
   const all = oldCoReqList();
   const f = state.oldReq = state.oldReq || {status:'pending', co:'all', from:'', to:''};
   if(!all.length) return '<div class="empty">لا توجد طلبات في شركات أخرى</div>';
-  const coName = id => (state.companies.find(c=>c.id===id)||{}).nameAr || id;
+  const coName = id => companyNameOf(id);
   const cos = [...new Set(all.map(r=>r.companyId))];
   let list = all.filter(r=> f.co==='all' || r.companyId===f.co);
   if(f.status==='pending') list = list.filter(r=>!r.isCancelled && !['completed','rejected'].includes(r.status));

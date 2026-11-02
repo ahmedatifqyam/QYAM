@@ -144,6 +144,11 @@
   .snd-lab{flex:1 1 260px;min-width:0;}
   .snd-lab .file-hint{margin:2px 0 0;}
   .snd-sw{display:flex !important;align-items:center;gap:8px;height:40px;margin:0 !important;font-weight:400;cursor:pointer;min-width:180px;}
+  /* شارة «نسخة تجريبية» فوق اسم النظام (موقع الاختبار وحده) */
+  .brand-name-col{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;min-width:0;gap:2px;}
+  .test-badge{background:#c2410c;color:#fff;font-size:12px;font-weight:700;line-height:18px;padding:0 9px;border-radius:9px;white-space:nowrap;letter-spacing:0;}
+  /* مرشّحات داخل الصفحة (أزرار متجاورة لا صف تبويب) */
+  .page-seg{flex-wrap:wrap;margin:0 0 12px;}
   .tab-count{display:inline-block;min-width:18px;padding:0 6px;border-radius:9px;background:#D4AF37;color:#1B2733;font-size:11px;font-weight:700;line-height:18px;margin-right:4px;text-align:center;}
   .admin-nav-item:hover{background:rgba(255,255,255,.08);color:#fff;}
   .admin-nav-item.active{background:rgba(255,255,255,.13);color:#fff;font-weight:600;border-right-color:#D4AF37;}
@@ -1252,10 +1257,8 @@
     .adm-tabs2 .adm-t2{flex:0 0 auto;}
   }
 </style>
-<style>#testBanner{position:fixed;left:10px;bottom:64px;z-index:99999;background:rgba(194,65,12,.72);color:#fff;font:700 11.5px/22px sans-serif;height:22px;padding:0 10px;border-radius:11px;pointer-events:none;box-shadow:0 2px 6px rgba(0,0,0,.18)}@media print{#testBanner{display:none}}</style>
 </head>
 <body>
-<div id="testBanner" title="نسخة تجريبية ببيانات وهمية">⚠ نسخة تجريبية</div>
 <div class="topbar">
   <button type="button" class="nav-hamburger no-print" id="navHamburger" data-on-click="openNavDrawer" title="القائمة">☰</button>
   <div class="brand" id="brandBox"><div class="brand-row"><span class="brand-name">نظام طلبات الصرف</span></div></div>
@@ -1273,6 +1276,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.0.3/qrcode.min.js"></script>
-<script src="app.js?v=cfe5007395"></script>
+<script src="app.js?v=a03651c2d4"></script>
 </body>
 </html>
