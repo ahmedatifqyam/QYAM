@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; script-src-attr 'none'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://vmi3593541.contaboserver.net https://cdn.jsdelivr.net; frame-src 'self' blob: data:; media-src 'self' blob: data:; worker-src blob: https://cdnjs.cloudflare.com; object-src 'none'; base-uri 'self'; form-action 'self'">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>نظام الصرف — تجريبي</title>
+<title>نظام مؤسسة القيم</title>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root{
@@ -50,7 +50,21 @@
   .nav-user:hover{background:rgba(255,255,255,.09);color:#fff;}
   .nav-user:focus-visible{outline:2px solid #D4AF37;outline-offset:1px;}
   .nav-user.on{background:rgba(255,255,255,.13);color:#fff;}
-  .nav-avatar{width:32px;height:32px;border-radius:50%;background:#2E4356;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;flex:0 0 32px;}
+  .nav-avatar{width:32px;height:32px;border-radius:50%;background:#2E4356;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;flex:0 0 32px;overflow:hidden;}
+  .nav-avatar img{width:100%;height:100%;object-fit:cover;display:block;}
+  /* صورة المستخدم: دائرة، أو الحرف الأول إن لم تُرفع صورة */
+  .u-av{width:32px;height:32px;border-radius:50%;object-fit:cover;flex:0 0 32px;display:inline-flex;align-items:center;justify-content:center;}
+  .u-av-l{background:#2E4356;color:#fff;font-weight:700;}
+  .u-av-md{width:36px;height:36px;flex-basis:36px;margin-left:10px;}
+  .u-av-lg{width:72px;height:72px;flex-basis:72px;font-size:26px;}
+  .av-edit{display:flex;align-items:center;gap:14px;margin:6px 0 4px;}
+  .av-btns{display:flex;gap:8px;flex-wrap:wrap;}
+  .av-pick{cursor:pointer;}
+  /* صفحة الدخول: اسم النظام وسطر يوضح دوره */
+  .login-hero{text-align:center;margin:8px auto 18px;max-width:560px;}
+  .login-hero .lh-logo{height:64px;max-width:200px;object-fit:contain;display:block;margin:0 auto 8px;}
+  .login-hero .lh-name{font-size:28px;font-weight:900;color:var(--ink);letter-spacing:0;}
+  .login-hero .lh-tag{font-size:15px;font-weight:600;color:var(--muted);margin-top:6px;line-height:1.7;}
   .nav-uname{font-size:13px;font-weight:600;color:#fff;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .nav-urole{font-size:11.5px;color:#9FC2DB;}
   .app-nav[data-mode="collapsed"] .nav-uinfo{display:none;}
@@ -177,6 +191,24 @@
   .cus-li-badges{display:flex;flex-direction:column;gap:3px;align-items:flex-end;}
   .why-line{font-size:12.5px;font-weight:600;color:var(--muted);margin-top:6px;}
   .cus-stepper .step{min-width:70px;}
+  /* نموذج العهدة على شبكة الموقع: ثمانية أعمدة × ٨٠ وبينها ٢٠ (حقول ١٨٠ و٣٨٠ و٧٨٠) */
+  .cus-form .cf-sec{display:flex;align-items:center;gap:8px;max-width:780px;font-size:15px;font-weight:800;color:var(--ink);margin:22px 0 4px;padding-bottom:7px;border-bottom:1px solid var(--line);}
+  .cus-form .cf-sec:first-child{margin-top:0;}
+  .cus-form .cf-n{width:24px;height:24px;flex:0 0 24px;border-radius:50%;background:var(--ink);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:13px;}
+  .cus-form .cf-opt{font-size:12.5px;font-weight:500;color:var(--muted);}
+  .cf-grid{display:grid;grid-template-columns:repeat(8,80px);column-gap:20px;row-gap:2px;align-items:start;}
+  .cf-grid > *{min-width:0;}
+  .cf-s2{grid-column:span 2;} .cf-s4{grid-column:span 4;} .cf-full{grid-column:1 / -1;}
+  .cf-grid input,.cf-grid select,.cf-grid textarea{max-width:none;}
+  .cf-hint{font-size:12.5px;color:var(--muted);margin-top:4px;line-height:1.6;min-height:1.6em;}
+  .cf-hint.cf-amt{margin-top:2px;}
+  .cf-words{color:var(--blue);font-weight:700;}
+  .cf-bad{color:var(--red);font-weight:700;}
+  .cf-side{align-self:end;padding-bottom:calc(1.6em + 4px);}
+  .cf-side .cus-limit{margin:0;min-height:40px;display:flex;align-items:center;flex-wrap:wrap;gap:0 4px;}
+  .req-star{color:var(--red);}
+  @media (max-width:860px){ .cf-grid{grid-template-columns:repeat(2,minmax(0,1fr));column-gap:12px;} .cf-s4,.cf-full{grid-column:1 / -1;} .cf-s2{grid-column:span 1;} .cf-side{padding-bottom:0;} }
+  @media (max-width:480px){ .cf-grid{grid-template-columns:1fr;} .cf-s2{grid-column:1 / -1;} }
   .header-actions-flex .stepper.cus-stepper{flex:1 1 100%;flex-wrap:nowrap;overflow-x:auto;padding-bottom:4px;}
   /* زر معطّل لسبب مكتوب: يبدو معطّلاً بوضوح (غير زر الانشغال المؤقت) */
   .btn[disabled][title]:not(.is-busy){opacity:.5;cursor:not-allowed;}
@@ -191,11 +223,12 @@
   .fb{height:40px;width:var(--fbw,auto);box-sizing:border-box;display:inline-flex;align-items:center;gap:8px;padding:0 10px;line-height:1.2;
     background:#fff;border:0;border-right:5px solid var(--ink);border-bottom:2px solid #CFCBBE;border-radius:6px;box-shadow:0 1px 3px rgba(0,0,0,.10);
     font-family:inherit;font-size:14.5px;color:var(--ink);font-weight:700;white-space:nowrap;cursor:pointer;flex:0 0 auto;}
-  /* رمز الحالة أبيض داخل مربّع صغير بلونها؛ والحد الأيمن العريض باللون نفسه */
-  .fb .fb-bx{width:24px;height:24px;border-radius:7px;background:var(--ink);color:#fff;display:inline-flex;align-items:center;justify-content:center;flex:0 0 24px;}
-  .fb .fb-bx .qi{width:16px;height:16px;stroke-width:2.3;}
-  .fb.fb-neu.on .fb-bx{background:#fff;color:var(--ink);}
-  .fb:disabled .fb-bx{filter:grayscale(.35);}
+  /* الرمز بخط رفيع بلون النص (كرموز الشريط الجانبي)، ولون الحالة في الحد الأيمن العريض وحده */
+  .fb .fb-ic{display:inline-flex;align-items:center;justify-content:center;flex:0 0 20px;color:inherit;}
+  .fb .fb-ic .qi{width:19px;height:19px;}
+  .fb.fb-neu.on .fb-ic{color:#fff !important;}
+  .fb.fb-blink .fb-ic{animation:fbFlashIc 1.2s linear infinite;}
+  @keyframes fbFlashIc{0%,42%{color:#fff;}50%,92%{color:#d97706;}100%{color:#fff;}}
   .fb .fb-n{margin-right:auto;font-weight:800;color:var(--ink);font-size:14.5px;}
   .fb.on{font-weight:800;box-shadow:inset 0 1px 3px rgba(0,0,0,.12);}
   .fb:disabled{opacity:.45;cursor:default;}
@@ -207,12 +240,10 @@
   /* يضيء ويطفئ كالمصباح: برتقالي ساطع بتوهّج، ثم أبيض */
   .fb.fb-blink{border-right-color:#d97706;animation:fbFlash 1.2s linear infinite;}
   .fb.fb-blink .fb-n{color:inherit;}
-  .fb.fb-blink .fb-bx{animation:fbFlashBx 1.2s linear infinite;}
   @keyframes fbFlash{0%,42%{background:#F59E0B;color:#fff;box-shadow:0 0 0 3px rgba(245,158,11,.35),0 0 16px rgba(245,158,11,.8);}
                      50%,92%{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.10);}
                      100%{background:#F59E0B;color:#fff;box-shadow:0 0 0 3px rgba(245,158,11,.35),0 0 16px rgba(245,158,11,.8);}}
-  @keyframes fbFlashBx{0%,42%{background:#fff;color:#d97706;}50%,92%{background:#d97706;color:#fff;}100%{background:#fff;color:#d97706;}}
-  @media (prefers-reduced-motion:reduce){ .fb.fb-blink,.fb.fb-blink .fb-bx{animation:none;} .fb.fb-blink{background:#FDE7C2;} }
+  @media (prefers-reduced-motion:reduce){ .fb.fb-blink,.fb.fb-blink .fb-ic{animation:none;} .fb.fb-blink{background:#FDE7C2;} }
   /* سطر المجموع تحت أزرار الفلتر */
   .dash-sum{font-size:14px;font-weight:600;color:var(--ink);margin:-4px 0 12px;}
   .dash-sum b{font-weight:800;}
@@ -450,9 +481,14 @@
   .dash-filt{display:flex;justify-content:flex-start;align-items:flex-end;gap:6px;margin:6px 0 6px;flex-wrap:wrap;}
   .dash-filt-right,.dash-filt-left{display:flex;align-items:flex-end;gap:6px;flex-wrap:nowrap;min-width:0;}
   .dash-filt-right > div{width:var(--fbw,150px);}
+  /* الفترة زرّ: رمز التقويم وقائمة بلا إطار داخله، بعرض الأزرار وارتفاعها */
+  .fb.fb-sel{width:var(--fbw,200px);margin:0;border-right-color:#0f766e;cursor:pointer;padding:0 10px 0 4px;color:var(--ink);font-size:14.5px;}
+  .fb.fb-sel select{flex:1 1 auto;min-width:0;max-width:none;width:auto;height:36px;border:0;background:transparent;padding:0 2px;font:inherit;font-weight:700;color:var(--ink);cursor:pointer;}
+  .fb.fb-sel select:focus{outline:none;}
+  .fb.fb-sel:focus-within{box-shadow:0 0 0 3px rgba(46,95,138,.35);}
   .dash-status{width:240px;}
   .dash-filt select{width:100%;}
-  @media (max-width:640px){ .dash-filt{flex-wrap:wrap;} .dash-filt-right,.dash-filt-left{width:100%;} .dash-filt-right > div{flex:1 1 0;width:auto;min-width:0;} .dash-status{flex:1 1 0;width:auto;min-width:0;} }
+  @media (max-width:640px){ .dash-filt{flex-wrap:wrap;} .dash-filt-right,.dash-filt-left{width:100%;} .dash-filt-right > div,.dash-filt-right > .fb-sel{flex:1 1 0;width:auto;min-width:0;} .dash-status{flex:1 1 0;width:auto;min-width:0;} }
   .filt-bar{display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;}
   .filt-bar > *{flex:0 1 var(--fbw,280px);min-width:0;max-width:min(var(--fbw,280px),100%);}
   .filt-bar > .filt-bar{flex:1 1 auto;max-width:none;}
@@ -734,6 +770,11 @@
   .doc-actions-row .btn-ghost:not(.btn-sm){font-weight:600;}
   .header-actions-flex{display:flex;align-items:flex-start;gap:20px;flex-wrap:wrap;}
   .doc-actions-col{display:flex;flex-direction:column;gap:10px;align-items:flex-start;width:220px;min-width:220px;}
+  /* صفحة الطلب: الأزرار صغيرة ومرصوصة فوق بعض في عمود ضيق، فيتسع مسار الاعتماد لسبع خطوات في سطر */
+  .doc-actions-stack{width:120px;min-width:120px;gap:6px;align-items:stretch;}
+  .doc-actions-stack .doc-actions-row{flex-direction:column;align-items:stretch;gap:6px;}
+  .doc-actions-stack .btn{width:100%;--btn-w:100%;}
+  .header-actions-flex .doc-actions-stack + .stepper{min-width:0;}
   .doc-actions-col .btn-ghost:not(.btn-sm){font-weight:600;}
   .header-actions-flex .stepper{flex:1;min-width:260px;margin:0;}
   .approval-row{
@@ -766,6 +807,7 @@
   .step p{font-size:11px;color:var(--muted);margin:0;line-height:1.25;}
   .step-approver{display:block;font-size:10.5px;color:var(--text);font-weight:600;margin-top:2px;}
   .step-approve-time{display:block;font-size:9px;color:var(--muted);margin-top:1px;}
+  .step .step-av{display:block;width:22px;height:22px;border-radius:50%;object-fit:cover;margin:-2px auto 3px;border:1px solid var(--line);}
   .step.done p, .step.current p{color:var(--text);font-weight:500;}
   .sign-box{
     display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:6px;
@@ -960,6 +1002,9 @@
     box-sizing:border-box;border:1px solid #999;border-radius:4px;padding:3px 4px;background:#fff;
   }
   .doc-pages-wrap{position:relative;}
+  /* المعاينة: الورقة بمقاس A4 الحقيقي، تُكبَّر وتُصغَّر بنسبتها (من الكود) لتطابق عرض صفحة الطلب */
+  .pv-zoom{width:210mm;margin:0 auto;}
+  @media print{ .pv-zoom{zoom:1 !important;width:auto !important;margin:0 !important;} }
   .request-qr-img{width:22mm;height:22mm;}
   .request-qr-row{display:flex;flex-direction:row;align-items:stretch;gap:2px;}
   /* رقم التحقق بجانب الرمز مكتوباً بالطول: متعامد مع سطر الكتابة في المستند */
@@ -1334,7 +1379,7 @@
 <body>
 <div class="topbar">
   <button type="button" class="nav-hamburger no-print" id="navHamburger" data-on-click="openNavDrawer" title="القائمة">☰</button>
-  <div class="brand" id="brandBox"><div class="brand-row"><span class="brand-name">نظام طلبات الصرف</span></div></div>
+  <div class="brand" id="brandBox"><div class="brand-row"><span class="brand-name">نظام مؤسسة القيم</span></div></div>
   <div class="topbar-right" id="topbarRight"></div>
 </div>
 <div class="imp-float no-print" id="impStrip" style="display:none;"></div>
@@ -1349,6 +1394,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.0.3/qrcode.min.js"></script>
-<script src="app.js?v=7a85be6e4e"></script>
+<script src="app.js?v=f72d738506"></script>
 </body>
 </html>
