@@ -13890,7 +13890,7 @@ function custodyLinesTableHtml(kc){
   const canEdit = ['open','returned'].includes(kc.status) && (state.user.id===kc.holderId || state.user.role==='admin');
   const st = {draft:'', accepted:'<span class="badge cus-badge" style="--cb:#15803d;">مقبول</span>', rejected:'<span class="badge cus-badge" style="--cb:#b91c1c;">مرفوض</span>'};
   return `<table class="app-table cus-lines"><thead><tr><th style="width:44px;">#</th><th style="width:80px;">النوع</th><th>الوصف</th><th style="width:110px;">التاريخ</th><th style="width:120px;">المبلغ</th><th style="width:150px;">السند</th></tr></thead><tbody>
-    ${L.map((l,i)=>`<tr${l.status==='rejected' ? ' style="background:#FDECEC;"' : ''}>
+    ${L.map((l,i)=>`<tr${l.status==='rejected' ? ' style="background:#FDECEC;"' : (l.status==='draft' && cusCanReviewLines(kc) ? ' class="cus-unreviewed" title="لم تراجعه بعد"' : '')}>
       <td class="num">${i+1}</td>
       <td>${l.kind==='expense' ? 'مصروف' : 'مقبوض'}</td>
       <td><div class="cell-right">${escH(l.description)}</div>${l.invoiceNo ? `<div class="cell-left">فاتورة ${escH(l.invoiceNo)}</div>` : ''}${l.reviewNote ? `<div style="color:var(--red);font-size:12px;">${escH(l.reviewNote)}</div>` : ''} ${st[l.status]||''}</td>
@@ -13915,7 +13915,9 @@ function custodyStageActHtml(kc){
   const nd = L.filter(l=>l.status==='draft').length, nr = L.filter(l=>l.status==='rejected').length;
   if(kc.status==='close_requested'){
     if(me===kc.reviewerId || state.user.role==='admin'){
-      return `<div class="why-line" style="color:var(--text);">أنت المراجِع: اقبل كل سطر أو ارفضه بملاحظة (ومعه صورة السند)، ثم «إنهاء المراجعة». مرفوض واحد يعيدها لصاحبها بكل الملاحظات.</div>
+      const done = L.length - nd;
+      return `<div class="cus-progress"><b>راجعت ${done} من ${L.length}</b>${nd ? ` — بقي ${nd}` : ' — اكتملت المراجعة'}<div class="cus-bar"><span style="width:${L.length ? Math.round(done*100/L.length) : 100}%;"></span></div></div>
+        <div class="why-line" style="color:var(--text);">${nd ? 'يُحفظ ما راجعته فوراً؛ أكمل الباقي متى شئت، ثم «إنهاء المراجعة».' : 'راجعت كل السطور: اضغط «إنهاء المراجعة».'} مرفوض واحد يعيدها لصاحبها بكل الملاحظات.</div>
         <div class="actions-row no-print" data-bar-actions><button class="btn btn-approve btn-md" data-on-click="cusReviewerDone" data-on-click-args="${qa([kc.id])}" ${nd ? `disabled title="بقي ${nd} سطر لم تراجعه"` : ''}>إنهاء المراجعة</button></div>`;
     }
     return `<div class="why-line" style="color:var(--text);">عند المراجِع «${escH(rv ? rv.name : '—')}»${kc.closeRequestedAt ? ' منذ '+fmtDateDMY(String(kc.closeRequestedAt).slice(0,10)) : ''}، ثم المحاسب. لا تُعدَّل السطور الآن.</div>`;
