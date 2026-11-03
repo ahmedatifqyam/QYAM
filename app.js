@@ -5895,8 +5895,8 @@ function renderMiniSignatureRow(req){
 
 const AMOUNT_TABLE_COLGROUP = `
   <colgroup>
-    <col style="width:4%;"><col style="width:27%;"><col style="width:29%;">
-    <col style="width:12%;"><col style="width:16%;"><col style="width:12%;">
+    <col style="width:4%;"><col style="width:26%;"><col style="width:28%;">
+    <col style="width:13%;"><col style="width:14%;"><col style="width:15%;">
   </colgroup>`;
 
 function buildAmountTableHeader(benLabel){

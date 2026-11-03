@@ -1454,6 +1454,12 @@
   .cus-chip.cur{box-shadow:0 0 0 3px var(--ink);}
   @media (max-width:760px){ .cus-docs-body{grid-template-columns:1fr;} .cus-strip-nav{flex-wrap:wrap;} .cus-chips{order:-1;flex:1 0 100%;} }
   .fb.fb-neu.on.fb-tint{color:var(--ink);} .fb.fb-neu.on.fb-tint .fb-n{color:var(--ink);} .fb.fb-neu.on.fb-tint .fb-ic{color:#d97706 !important;}
+
+  /* ورقة الصرف: كل الأعمدة بخط عريض، والإجمالي (وعموده) أكبر درجة لأنه مساوٍ للمبلغ عادةً */
+  .amount-table td:not(.num), .amount-table td .cell-left, .amount-table td .cell-right{font-weight:700;}
+  .amount-table-bene tbody tr > td:nth-child(6){font-size:12.5px !important;font-weight:800;}
+  .amount-table-bene tbody tr > td:nth-child(6) .amt-number{width:78px;}
+  @media print{ .amount-table-bene tbody tr > td:nth-child(6){font-size:12.5px !important;} .amount-table td.num{font-weight:500;} }
 </style>
 </head>
 <body>
@@ -1474,6 +1480,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.0.3/qrcode.min.js"></script>
-<script src="app.js?v=e31ffc2059"></script>
+<script src="app.js?v=6f0f876ca8"></script>
 </body>
 </html>
