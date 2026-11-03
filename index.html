@@ -1436,6 +1436,23 @@
   @media (max-width:640px){ .dash-filt,.fbar,.dash-sum{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;} .dash-sum{grid-template-columns:repeat(3,minmax(0,1fr));} .dash-sum .dash-status{grid-column:1 / -1;} .dash-filt .fb,.fbar .fb{width:100% !important;} }
   #app .bar-moved{display:none !important;}
   @media (max-width:640px){ #app .row > *:has(> #brandSysName), #app .row > *:has(> #brandTag1){flex:1 1 100%;max-width:100%;} #brandTag2{--fw:100%;} }
+
+  /* صفحة المستندات: التفاصيل أو الحقول على اليمين، والمعاينة بجوارها، وشريط الانتقال تحتهما */
+  .cus-docs{background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px;margin:12px 0;}
+  .cus-docs-head{display:flex;align-items:center;gap:10px;margin-bottom:10px;} .cus-docs-head .btn{margin-right:auto;} .cus-docs-cnt{font-size:13px;color:var(--muted);font-weight:700;}
+  .cus-docs-body{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);gap:16px;align-items:start;}
+  .cus-doc-prev{border:1px solid var(--line);border-radius:8px;background:#F4F2EC;min-height:320px;display:flex;align-items:center;justify-content:center;overflow:auto;max-height:640px;}
+  .cus-doc-prev img{max-width:100%;max-height:620px;object-fit:contain;display:block;}
+  .cus-doc-no{font-size:13px;color:var(--muted);font-weight:700;margin-bottom:6px;} .cus-doc-desc{font-size:19px;font-weight:800;color:var(--ink);line-height:1.5;}
+  .cus-doc-amt{font-size:28px;font-weight:800;margin:6px 0;} .cus-doc-meta{font-size:13.5px;color:var(--text);margin-bottom:6px;}
+  .cus-doc-fields label{margin-top:8px;} .cus-doc-fields input,.cus-doc-fields select{width:100%;max-width:100%;}
+  .cus-doc-btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;}
+  .cus-strip-nav{display:flex;align-items:center;gap:10px;margin-top:12px;padding-top:10px;border-top:1px solid var(--line);}
+  .cus-chips{display:flex;gap:6px;flex-wrap:wrap;flex:1;justify-content:center;}
+  .cus-chip{width:36px;height:36px;border-radius:50%;border:2px solid #cfcbbe;background:#fff;font-weight:800;font-family:inherit;cursor:pointer;color:var(--ink);}
+  .cus-chip.st-accepted{background:#dcfce7;border-color:#15803d;} .cus-chip.st-rejected{background:#fee2e2;border-color:#b91c1c;} .cus-chip.st-new{border-style:dashed;}
+  .cus-chip.cur{box-shadow:0 0 0 3px var(--ink);}
+  @media (max-width:760px){ .cus-docs-body{grid-template-columns:1fr;} .cus-strip-nav{flex-wrap:wrap;} .cus-chips{order:-1;flex:1 0 100%;} }
 </style>
 </head>
 <body>
@@ -1456,6 +1473,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.0.3/qrcode.min.js"></script>
-<script src="app.js?v=6dc1693b88"></script>
+<script src="app.js?v=ae1c2485ba"></script>
 </body>
 </html>

@@ -1125,6 +1125,16 @@ function computeNotifications(){
     items.push({key, kind:'custody_receipt', reqId:String(k.id), number:r ? r.number : '', ts, isNew:(ts>seen || isFreshKey(key)), overdue:false,
       title, sub:((r && r.number) || '')+' — '+(k.purpose || '')+' — '+((userById(k.holderId)||{}).name||'')});
   });
+  // سطر رُفض في عهدتي (والعهدة ما زالت عند المراجِع): إشعار فوري بالملاحظة، ويُفتح السطر للتصحيح حين يضغط المراجِع «أعد للتصحيح»
+  if(state.custodyReady) (state.custodyLines||[]).filter(l=>l.status==='rejected').forEach(l=>{
+    const k = (state.custodies||[]).find(x=>x.id===l.custodyId);
+    if(!k || k.holderId!==me || k.companyId!==state.currentCompanyId || k.status!=='close_requested') return;
+    const key = 'cl:'+l.id+':'+(l.reopened?'o':'r')+':'+(l.reviewedAt||''), ts = tsOf(l.reviewedAt) || tsOf(k.closeRequestedAt);
+    const r = state.requests.find(x=>x.id===k.requestId);
+    items.push({key, kind:'custody_receipt', reqId:String(k.id), number:r ? r.number : '', ts, isNew:(ts>seen || isFreshKey(key)), overdue:false,
+      title: l.reopened ? 'فُتح لك سطر في عهدتك للتصحيح' : 'رُفض سطر في عهدتك',
+      sub: (l.description||'')+' — '+fmtKWDPlain(l.amount)+(l.reviewNote ? ' — '+l.reviewNote : '')});
+  });
   const horizon = Date.now() - 30*86400000;
   state.requests.filter(r=>r.companyId===state.currentCompanyId && r.createdById===me && !r.isCancelled).forEach(r=>{
     let last = null;
@@ -2917,7 +2927,7 @@ function navSections(){
   if(canSeeHandovers()) req.push({label:'إسناد المعاملات', count:hoN, views:['handovers'], js:[["openHandovers",[]]]});
   out.push({key:'req', ico:'clip', label:'طلبات الصرف', count:pend + hoN, pages:req});
   if(state.custodyReady && pageLevel('custody')!=='none'){
-    const kN = custodyAwaitingMine().length;
+    const kN = custodyTasksMine(state.currentCompanyId).length;
     out.push({key:'cus', ico:'case', label:'العهد', count:kN, pages:[
       {label:'عهدي', count:kN, views:['custodyList','custody'], js:[["openCustodyList",[]]]},
       {label:'عهدة جديدة', views:['newCustody'], js:[["openNewCustody",[]]]}
@@ -13518,14 +13528,26 @@ async function fetchCustodies(){
   try{
     const [r, l, _b] = await Promise.all([
       db.from('custodies').select('*').order('created_at', {ascending:true}),
-      db.from('custody_lines').select('id,custody_id,kind,amount,description,invoice_no,line_date,has_image,status,review_note,created_at').order('id', {ascending:true}),
+      db.from('custody_lines').select('id,custody_id,kind,amount,description,invoice_no,line_date,has_image,status,review_note,reopened,reviewed_at,created_at').order('id', {ascending:true}),
       db.from('custody_balances').select('*').order('id', {ascending:true})
     ]);
     if(r && !r.error){ r.lines = (l && !l.error) ? (l.data||[]) : null; r.balances = (_b && !_b.error) ? (_b.data||[]) : null; }
     return r;
   }catch(e){ return {error:e}; }
 }
-function mapCustodyLine(x){ return {id:Number(x.id), custodyId:Number(x.custody_id), kind:x.kind, amount:Number(x.amount||0), description:x.description||'', invoiceNo:x.invoice_no||'', lineDate:x.line_date||'', hasImage:!!x.has_image, status:x.status||'draft', reviewNote:x.review_note||''}; }
+function mapCustodyLine(x){ return {id:Number(x.id), custodyId:Number(x.custody_id), kind:x.kind, amount:Number(x.amount||0), description:x.description||'', invoiceNo:x.invoice_no||'', lineDate:x.line_date||'', hasImage:!!x.has_image, status:x.status||'draft', reviewNote:x.review_note||'', reopened:!!x.reopened, reviewedAt:x.reviewed_at||''}; }
+// عهد تنتظر إجراءً مني: مراجعة، اعتماد، توقيع، تصحيح، أو تأكيد استلام
+function custodyTasksMine(cid){
+  if(!state.user || !state.custodyReady) return [];
+  const me = state.user.id, fin = ['accountant','cfo'].includes(state.user.role);
+  return (state.custodies||[]).filter(k=>(!cid || k.companyId===cid) && (
+    (k.status==='awaiting_receipt' && k.holderId===me) ||
+    (k.status==='close_requested' && k.reviewerId===me) ||
+    (k.status==='acct_review' && fin && me!==k.holderId) ||
+    (k.status==='pending_sign' && fin && ![k.holderId,k.reviewerId,k.reviewedById].includes(me)) ||
+    (k.status==='returned' && k.holderId===me) ||
+    (k.status==='close_requested' && k.holderId===me && custodyLinesOf(k).some(l=>l.status==='rejected'))));
+}
 function custodyLinesOf(k){ return (state.custodyLines||[]).filter(l=>l.custodyId===k.id); }
 function custodySums(k){
   const L = custodyLinesOf(k), r3 = v=>Math.round(v*1000)/1000;
@@ -13887,6 +13909,13 @@ function openCustodyOfRequest(reqId){
 
 // صفحة العهدة: مسار حياتها، صاحبها وموعدها، الأرصدة الخمسة، وزر تأكيد الاستلام
 // ===== العهدة — المرحلة الثانية (١): السطور وطلب الإقفال =====
+function custodyDocsEntryHtml(kc){
+  if(!state.custodyLinesReady) return '';
+  const L = custodyLinesOf(kc), reviewing = cusCanReviewLines(kc), holder = cusLineEditable(kc, null);
+  if(!L.length && !holder) return '';
+  const label = reviewing ? 'بدء المراجعة — عرض المستندات' : (holder ? 'تسجيل وتعديل المستندات (صفحة المعاينة)' : 'عرض المستندات');
+  return `<div class="no-print" style="margin:10px 0 0;"><button type="button" class="btn btn-primary btn-md" data-on-click="cusDocsOpen" data-on-click-args="${qa([kc.id, reviewing ? -1 : 0])}">${label}</button></div>`;
+}
 function custodyLinesTableHtml(kc){
   if(!state.custodyLinesReady) return '';
   const L = custodyLinesOf(kc); if(!L.length) return '<div class="empty no-print" style="margin:10px 0;">لا مصروفات ولا مقبوضات مسجّلة بعد</div>';
@@ -13954,15 +13983,147 @@ function custodyStageActHtml(kc){
     </div>
     <div class="actions-row no-print"><button class="btn btn-ghost btn-md" data-on-click="printCustodySettlement">طباعة كشف التسوية</button></div>`;
 }
+
+// ===== صفحة المستندات: المراجِع يرى سنداً سنداً بقبوله أو رفضه، وصاحب العهدة يعدّل حقول السند بجوار معاينته =====
+function cusLineEditable(kc, l){
+  if(!state.user || !(state.user.id===kc.holderId || state.user.role==='admin')) return false;
+  if(!l) return ['open','returned'].includes(kc.status);
+  if(l.status==='accepted') return false;
+  return ['open','returned'].includes(kc.status) || (kc.status==='close_requested' && l.reopened);
+}
+function cusDocsOpen(id, idx){
+  state.cusLine = null; state.cusClose = null; state.activeCustodyId = Number(id); state.view = 'custody';
+  const kc = (state.custodies||[]).find(x=>x.id===Number(id)), L = kc ? custodyLinesOf(kc) : [];
+  let i = Number(idx);
+  if(!(i>=0)){ const nd = L.findIndex(l=>l.status==='draft' && cusCanReviewLines(kc)); i = nd>=0 ? nd : 0; }   // المراجِع يبدأ من أول سند لم يراجعه
+  state.cusDocs = {custodyId:Number(id), idx:i, done:false}; state.cusImgs = state.cusImgs || {};
+  render(); window.scrollTo(0,0);
+}
+function cusDocsClose(){ state.cusDocs = null; render(); }
+function cusDocsGo(i){ const d = state.cusDocs; if(!d) return; d.idx = Number(i); d.done = false; render(); }
+function cusDocsStep(delta){ const d = state.cusDocs; if(d) cusDocsGo(d.idx + Number(delta)); }
+function cusDocsBack(){ if(state.cusDocs){ state.cusDocs.done = false; render(); } }
+async function cusDocsLoadImg(){
+  const d = state.cusDocs; if(!d) return;
+  const kc = (state.custodies||[]).find(x=>x.id===d.custodyId); if(!kc) return;
+  const l = custodyLinesOf(kc)[d.idx]; if(!l || !l.hasImage) return;
+  state.cusImgs = state.cusImgs || {};
+  if(state.cusImgs[l.id] || d.loading===l.id) return;
+  d.loading = l.id;
+  const r = await db.rpc('qy_custody_line_image', {p_id:l.id});
+  d.loading = 0;
+  if(r && !r.error && r.data) state.cusImgs[l.id] = r.data; else state.cusImgs[l.id] = 'x';
+  const box = document.getElementById('cusDocPrev');
+  if(box && state.cusDocs && custodyLinesOf(kc)[state.cusDocs.idx]===l) box.innerHTML = cusDocPrevInner(l, '');
+}
+function cusDocPrevInner(l, localUrl){
+  const u = localUrl || (l && state.cusImgs ? state.cusImgs[l.id] : '');
+  if(!u) return l && l.hasImage ? '<div class="empty">جارٍ تحميل صورة السند…</div>' : '<div class="empty">لا صورة سند لهذا السطر</div>';
+  if(u==='x') return '<div class="empty">تعذّر تحميل الصورة</div>';
+  if(String(u).startsWith('data:application/pdf') || String(u).startsWith('blob:') && localUrl==='pdf') return `<iframe src="${u}" title="سند" style="width:100%;height:520px;border:0;"></iframe>`;
+  return `<img src="${u}" alt="صورة السند">`;
+}
+function cusDocsPickFile(){
+  const f = ((document.getElementById('cusLineImg')||{}).files||[])[0], box = document.getElementById('cusDocPrev'); if(!f || !box) return;
+  const rd = new FileReader();
+  rd.onload = () => { box.innerHTML = f.type==='application/pdf' ? `<iframe src="${rd.result}" title="سند" style="width:100%;height:520px;border:0;"></iframe>` : `<img src="${rd.result}" alt="صورة السند">`; };
+  rd.readAsDataURL(f);
+}
+function cusDocsHtml(kc){
+  const d = state.cusDocs; if(!d || d.custodyId!==kc.id || !state.custodyLinesReady) return '';
+  const L = custodyLinesOf(kc), me = state.user.id;
+  const canNew = cusLineEditable(kc, null), total = L.length + (canNew ? 1 : 0);
+  if(!total) return `<div class="card cus-docs-empty">لا سندات مسجّلة بعد.<div class="actions-row"><button class="btn btn-ghost btn-md" data-on-click="cusDocsClose">رجوع للعهدة</button></div></div>`;
+  d.idx = Math.max(0, Math.min(Number(d.idx)||0, total-1));
+  const l = L[d.idx] || null, reviewing = cusCanReviewLines(kc), editable = cusLineEditable(kc, l);
+  const chip = (x, i) => `<button type="button" class="cus-chip ${x ? 'st-'+x.status : 'st-new'}${i===d.idx ? ' cur' : ''}" data-on-click="cusDocsGo" data-on-click-args="${qa([i])}" title="${x ? escH(x.description) : 'سند جديد'}">${x ? (i+1) : '+'}</button>`;
+  const strip = `<div class="cus-strip-nav no-print">
+      <button type="button" class="btn btn-ghost btn-sm" data-on-click="cusDocsStep" data-on-click-args="${qa([-1])}" ${d.idx<=0 ? 'disabled title="هذا أول سند"' : ''}>→ السابق</button>
+      <div class="cus-chips">${L.map((x,i)=>chip(x,i)).join('')}${canNew ? chip(null, L.length) : ''}</div>
+      <button type="button" class="btn btn-ghost btn-sm" data-on-click="cusDocsStep" data-on-click-args="${qa([1])}" ${d.idx>=total-1 ? 'disabled title="هذا آخر سند"' : ''}>التالي ←</button>
+    </div>`;
+  const stLbl = {draft:'لم يُراجَع', accepted:'مقبول', rejected:'مرفوض'};
+  let left;
+  if(editable){
+    left = `<div class="cus-doc-fields">
+      <h2 style="margin:0 0 8px;font-size:16px;">${l ? 'تعديل السند '+(d.idx+1) : 'سند جديد'}</h2>
+      ${l && l.status==='rejected' && l.reviewNote ? `<div class="note-box" style="background:#FDECEC;color:var(--red);">ملاحظة المراجِع: ${escH(l.reviewNote)}</div>` : ''}
+      <label>النوع</label><select id="cusLineKind" style="--fw:100%;"><option value="expense" ${!l||l.kind==='expense' ? 'selected' : ''}>مصروف</option><option value="receipt" ${l&&l.kind==='receipt' ? 'selected' : ''}>مقبوض</option></select>
+      <label>المبلغ (د.ك) *</label><input id="cusLineAmt" type="number" min="0.001" step="0.001" dir="ltr" style="--fw:100%;direction:ltr;text-align:center;" value="${l ? l.amount : ''}">
+      <label>الوصف *</label><input id="cusLineDesc" type="text" maxlength="300" style="--fw:100%;" value="${l ? escH(l.description) : ''}" placeholder="مثال: ضيافة اجتماع أولياء الأمور">
+      <label>رقم الفاتورة (اختياري)</label><input id="cusLineInv" type="text" maxlength="60" style="--fw:100%;" value="${l ? escH(l.invoiceNo) : ''}">
+      <label>التاريخ</label><input id="cusLineDate" type="date" style="--fw:100%;" value="${l ? l.lineDate : isoDatePlus(0)}" max="${isoDatePlus(0)}">
+      <label>صورة السند ${l && l.hasImage ? '(محفوظة — اختر صورة جديدة لاستبدالها)' : '*'}</label>
+      <input id="cusLineImg" type="file" accept="image/*,application/pdf" data-on-change="cusDocsPickFile">
+      <div class="cus-doc-btns no-print">
+        <button type="button" class="btn btn-primary btn-md" data-on-click="saveCusLine">${l ? 'حفظ والتالي' : 'حفظ السند'}</button>
+        ${l && ['open','returned'].includes(kc.status) ? `<button type="button" class="btn btn-reject btn-md" data-on-click="deleteCusLine" data-on-click-args="${qa([l.id])}">حذف</button>` : ''}
+      </div></div>`;
+  } else if(l){
+    const myTurn = reviewing;
+    left = `<div class="cus-doc-info">
+      <div class="cus-doc-no">سند ${d.idx+1} من ${L.length} · ${l.kind==='expense' ? 'مصروف' : 'مقبوض'} <span class="badge cus-badge" style="--cb:${l.status==='accepted' ? '#15803d' : l.status==='rejected' ? '#b91c1c' : '#6b7280'};">${stLbl[l.status]||''}</span></div>
+      <div class="cus-doc-desc">${escH(l.description)}</div>
+      <div class="cus-doc-amt" style="color:${l.kind==='expense' ? 'var(--red)' : 'var(--green)'};">${l.kind==='expense' ? '−' : '+'}${fmtKWDHtml(l.amount)} <span class="cus-unit">د.ك</span></div>
+      <div class="cus-doc-meta">${l.lineDate ? 'التاريخ: <b>'+fmtDateDMY(l.lineDate)+'</b>' : ''}${l.invoiceNo ? ' · فاتورة <b>'+escH(l.invoiceNo)+'</b>' : ''}</div>
+      ${l.reviewNote ? `<div class="note-box" style="background:#FDECEC;color:var(--red);">${escH(l.reviewNote)}</div>` : ''}
+      ${l.status==='rejected' && state.user.id===kc.holderId && kc.status==='close_requested' && !l.reopened ? '<div class="why-line">رُفض هذا السند. تُفتح لك التعديلات حين يضغط المراجِع «أعد للتصحيح».</div>' : ''}
+      ${myTurn ? `<label style="margin-top:10px;">سبب الرفض (يراه صاحب العهدة)</label><input id="cusDocNote" type="text" maxlength="300" style="--fw:100%;" value="${l.status==='rejected' ? escH(l.reviewNote) : ''}" placeholder="اكتبه إن رفضت السند">
+        <div class="cus-doc-btns no-print">
+          <button type="button" class="btn ${l.status==='accepted' ? 'btn-approve' : 'btn-primary'} btn-md" data-on-click="cusDocsReview" data-on-click-args="${qa([true])}">✓ قبول</button>
+          <button type="button" class="btn ${l.status==='rejected' ? 'btn-reject' : 'btn-ghost'} btn-md" data-on-click="cusDocsReview" data-on-click-args="${qa([false])}">✕ رفض</button>
+          ${kc.status==='close_requested' && l.status==='rejected' ? `<button type="button" class="btn btn-ghost btn-md" data-on-click="cusReopenLine" data-on-click-args="${qa([l.id])}" ${l.reopened ? 'disabled title="مفتوح للتصحيح عند صاحب العهدة"' : 'title="يفتح هذا السند وحده لصاحب العهدة ليصحّحه"'}>${l.reopened ? 'مفتوح للتصحيح' : 'أعد للتصحيح'}</button>` : ''}
+        </div>` : ''}
+    </div>`;
+  } else left = '';
+  const prevInner = l ? cusDocPrevInner(l, '') : '<div class="empty">اختر صورة السند لتظهر هنا</div>';
+  if(l && l.hasImage && !(state.cusImgs||{})[l.id]) setTimeout(cusDocsLoadImg, 0);
+  const nd = L.filter(x=>x.status==='draft').length, nr = L.filter(x=>x.status==='rejected').length;
+  const dialog = d.done ? `<div class="modal-overlay no-print"><div class="modal-box" style="max-width:440px;">
+      <h2 style="margin-top:0;">هل انتهيت من المراجعة؟</h2>
+      <p>راجعت كل السندات${nr ? `، وفيها <b>${nr}</b> مرفوض: بإنهاء المراجعة تعود العهدة لصاحبها بملاحظاتك` : ' وكلها مقبولة'}.</p>
+      <div class="actions-row"><button type="button" class="btn btn-approve btn-md" data-on-click="cusDocsFinish">انتهت المراجعة</button><button type="button" class="btn btn-ghost btn-md" data-on-click="cusDocsBack">رجوع للمراجعة</button></div>
+    </div></div>` : '';
+  return `<div class="cus-docs">
+    <div class="cus-docs-head no-print"><b>المستندات</b>${reviewing ? `<span class="cus-docs-cnt">راجعت ${L.length-nd} من ${L.length}</span>` : ''}
+      <button type="button" class="btn btn-ghost btn-sm" data-on-click="cusDocsClose">إغلاق صفحة المستندات</button></div>
+    <div class="cus-docs-body">${left}<div class="cus-doc-prev" id="cusDocPrev">${prevInner}</div></div>
+    ${strip}${dialog}</div>`;
+}
+async function cusDocsReview(ok){
+  const d = state.cusDocs; if(!d) return false;
+  const kc = (state.custodies||[]).find(x=>x.id===d.custodyId); if(!kc) return false;
+  const l = custodyLinesOf(kc)[d.idx]; if(!l) return false;
+  const note = ok ? '' : ((document.getElementById('cusDocNote')||{}).value||'').trim();
+  if(!ok && !note){ fieldErr('#cusDocNote', 'اكتب سبب الرفض'); return false; }
+  const done = await reviewCusLine(l.id, !!ok, note); if(!done) return false;
+  const L = custodyLinesOf(kc);
+  let t = L.findIndex((x,i)=>i>d.idx && x.status==='draft'); if(t<0) t = L.findIndex(x=>x.status==='draft');
+  if(t>=0) d.idx = t; else d.done = true;   // آخر سند: تظهر رسالة «هل انتهيت؟»
+  render(); return true;
+}
+async function cusDocsFinish(){
+  const d = state.cusDocs; if(!d) return false;
+  const kc = (state.custodies||[]).find(x=>x.id===d.custodyId); if(!kc) return false;
+  d.done = false;
+  if(kc.status==='close_requested'){ const ok = await cusReviewerDone(kc.id); if(ok) state.cusDocs = null; render(); return ok; }
+  state.cusDocs = null; render(); return true;   // المحاسب: يكمل بقراره في صفحة العهدة
+}
 function printCustodySettlement(){ document.body.classList.add('printing-cus'); setTimeout(()=>{ window.print(); setTimeout(()=>document.body.classList.remove('printing-cus'), 500); }, 50); }
 async function cusRefresh(){ applyCustodies(await fetchCustodies()); try{ await refreshRequests(); }catch(e){} render(); }
-async function reviewCusLine(id, ok){
+async function reviewCusLine(id, ok, noteArg){
   let note = '';
-  if(!ok){ note = (prompt('سبب رفض السطر (يراه صاحب العهدة):','')||'').trim(); if(!note) return false; }
+  if(!ok){ note = typeof noteArg==='string' ? noteArg.trim() : (prompt('سبب رفض السطر (يراه صاحب العهدة):','')||'').trim(); if(!note) return false; }
   const r = await db.rpc('qy_custody_review_line', {p_line:Number(id), p_ok:!!ok, p_note:note});
   if(!(await dbCheck(r, 'مراجعة السطر'))) return false;
   const row = mapCustodyLine(r.data); const i = state.custodyLines.findIndex(x=>x.id===row.id); if(i>=0) state.custodyLines[i] = row;
   render(); return true;
+}
+async function cusReopenLine(id){
+  const r = await db.rpc('qy_custody_line_reopen', {p_line:Number(id)});
+  if(!(await dbCheck(r, 'فتح السطر للتصحيح'))) return false;
+  const row = mapCustodyLine(r.data); const i = state.custodyLines.findIndex(x=>x.id===row.id); if(i>=0) state.custodyLines[i] = row;
+  showToast('فُتح السطر لصاحب العهدة للتصحيح', 'success'); render(); return true;
 }
 async function cusReviewerDone(id){
   const r = await db.rpc('qy_custody_reviewer_done', {p_id:Number(id)});
@@ -14027,7 +14188,12 @@ async function cusImageData(file){
   const r = await resizeImageFile(file, 1400, 1400); return r.dataUrl;
 }
 async function saveCusLine(){
-  const f = state.cusLine; if(!f) return false;
+  let f = state.cusLine;
+  if(!f && state.cusDocs){
+    const kc0 = (state.custodies||[]).find(x=>x.id===state.cusDocs.custodyId), l0 = kc0 ? custodyLinesOf(kc0)[state.cusDocs.idx] : null;
+    if(kc0) f = {custodyId:kc0.id, kind:(document.getElementById('cusLineKind')||{}).value||'expense', id:l0 ? l0.id : 0};
+  }
+  if(!f) return false;
   const sel = document.getElementById('cusLineCus'); const cid = sel ? Number(sel.value) : f.custodyId;
   const amt = Math.round(parseFloat((document.getElementById('cusLineAmt')||{}).value)*1000)/1000;
   const desc = ((document.getElementById('cusLineDesc')||{}).value||'').trim();
@@ -14046,6 +14212,8 @@ async function saveCusLine(){
   const row = mapCustodyLine(r.data); state.custodyLines = state.custodyLines || [];
   const i = state.custodyLines.findIndex(x=>x.id===row.id); if(i>=0) state.custodyLines[i] = row; else state.custodyLines.push(row);
   state.cusLine = null; state.activeCustodyId = cid;
+  if(state.cusImgs) delete state.cusImgs[row.id];
+  if(state.cusDocs){ const pos = custodyLinesOf(k).findIndex(x=>x.id===row.id); state.cusDocs.idx = pos + 1; }   // ينتقل إلى السند التالي (أو سند جديد)
   showToast(f.kind==='expense' ? 'تم تسجيل المصروف' : 'تم تسجيل المقبوض', 'success'); render();
   return true;
 }
@@ -14139,6 +14307,7 @@ function renderCustodyPage(app){
           <div class="stepper" style="margin:0;">${custodyLifeStepperHtml(req, kc)}</div>
         </div>
       </div>
+      ${state.cusDocs && state.cusDocs.custodyId===kc.id ? cusDocsHtml(kc) : ''}
       <div class="cus-panel">
         <div class="cus-head">
           <span class="cus-title">💼 عهدة</span>
@@ -14159,7 +14328,7 @@ function renderCustodyPage(app){
         </div>
         ${act}
       </div>
-      ${custodyLinesTableHtml(kc)}
+      ${state.cusDocs && state.cusDocs.custodyId===kc.id ? '' : `${custodyDocsEntryHtml(kc)}${custodyLinesTableHtml(kc)}`}
       <div class="history no-print">
         <h2>سجل الطلب والعهدة</h2>
         ${H.map(h=>`
@@ -14216,6 +14385,14 @@ function renderCustodyList(app){
     ${canNew ? '' : '<div class="why-line">ليست لديك صلاحية طلب عهدة (صلاحيتك: قراءة فقط).</div>'}
     ${(()=>{ const bal = (state.custodyBalances||[]).filter(b=>b.holderId===me && b.companyId===cid && b.status==='open'); const t = Math.round(bal.reduce((a,b)=>a+b.amount,0)*1000)/1000;
       return bal.length ? `<div class="note-box">رصيد عهدة معلّق باسمك: <b>${cusAmtHtml(t)} د.ك</b> ${t>0 ? '(معك للشركة)' : '(لك على الشركة)'} — يدخل عهدتك القادمة عند تأكيد استلامها.</div>` : ''; })()}
+    ${(()=>{ const todo = custodyTasksMine(cid).filter(k=>k.holderId!==me); if(!todo.length) return '';
+      const days = d => d ? Math.max(0, Math.floor((Date.now()-new Date(d).getTime())/86400000)) : 0;
+      return `<h2 style="margin-top:18px;">بانتظار إجراءٍ مني <span class="tab-count">${todo.length}</span></h2>` + todo.map(k=>{
+        const req = state.requests.find(r=>r.id===k.requestId), L = custodyLinesOf(k), nd = L.filter(l=>l.status==='draft').length;
+        const what = k.status==='close_requested' ? `مراجعتك: راجعت ${L.length-nd} من ${L.length}` : k.status==='acct_review' ? 'اعتماد المحاسب' : 'توقيع الإقفال';
+        return `<div class="list-item" data-on-click="openCustody" data-on-click-args="${qa([k.id])}"><div class="li-main"><b>${escH(k.purpose || (req && req.reason) || 'عهدة')} — <bdi>${escH(req && req.number ? req.number : '')}</bdi></b>
+          <span>صاحبها: ${escH((userById(k.holderId)||{}).name||'')} · ${cusAmtHtml(k.amount)} د.ك · ${what}${k.closeRequestedAt ? ' · منذ '+days(k.closeRequestedAt)+' يوم' : ''}</span></div>
+          <div class="cus-li-badges">${custodyBadge(k, req)}</div></div>`; }).join(''); })()}
     ${custodyFinanceOverviewHtml(cid)}
     <h2 style="margin-top:18px;">في عهدتي</h2>
     ${mine.length ? mine.map(item).join('') : '<div class="empty">لا عهد باسمك في هذه الشركة</div>'}
@@ -14438,7 +14615,7 @@ function renderDetail(app){
 }
 
 // ===================== أثر الضغط على الأزرار: انشغال + منع الضغط المزدوج + ✓ عند النجاح =====================
-const BUSY_FNS = ['saveSysIdentity','reviewCusLine','cusReviewerDone','cusAcctDecide','cusSign','settleCusBalance','saveCusLine','deleteCusLine','submitCusClose','setUserAvatar','removeUserAvatar','submitCustody','confirmCustodyReceipt','approve','markDisbursed','resubmit','confirmRejectModal','submitBankTransfer','confirmManualSign','saveAccount','addCompany','addCenter','addCustomRole','addUser','saveUserEdit','saveCenterEdit','saveCompanyEdit','saveSigDesignerConfig','restoreRequest','confirmDeletePassword'];
+const BUSY_FNS = ['cusDocsReview','cusDocsFinish','cusReopenLine','saveSysIdentity','reviewCusLine','cusReviewerDone','cusAcctDecide','cusSign','settleCusBalance','saveCusLine','deleteCusLine','submitCusClose','setUserAvatar','removeUserAvatar','submitCustody','confirmCustodyReceipt','approve','markDisbursed','resubmit','confirmRejectModal','submitBankTransfer','confirmManualSign','saveAccount','addCompany','addCenter','addCustomRole','addUser','saveUserEdit','saveCenterEdit','saveCompanyEdit','saveSigDesignerConfig','restoreRequest','confirmDeletePassword'];
 const _busyLocks = {};
 function clickedButton(){
   const ev = window.event, t = ev && ev.target;
