@@ -153,6 +153,9 @@
   .status-legend{display:flex;flex-wrap:wrap;gap:6px 16px;margin:0 0 8px;font-size:12px;color:var(--muted);}
   .status-legend span{display:inline-flex;align-items:center;gap:5px;}
   .status-legend i{display:inline-block;width:12px;height:12px;border-radius:3px;}
+  /* الرموز: خط رفيع بلون النص */
+  .qi{width:1.15em;height:1.15em;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:0 0 auto;vertical-align:-0.2em;}
+  .btn .qi-btn{margin-inline-end:.45em;}
   /* نظام العهدة */
   .custody-tag{display:inline-block;background:#EEF2FF;color:#3730A3;border:1px solid #C7D2FE;border-radius:10px;font-size:11px;font-weight:700;padding:1px 8px;white-space:nowrap;}
   .badge.cus-badge{background:color-mix(in srgb, var(--cb) 13%, #fff);color:var(--cb);border:1px solid color-mix(in srgb, var(--cb) 40%, #fff);white-space:nowrap;}
@@ -184,10 +187,13 @@
   .dash-filt-own{display:flex;gap:6px;align-items:flex-end;}
   .fbar{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 12px;}
   .fb{height:30px;width:var(--fbw,auto);box-sizing:border-box;display:inline-flex;align-items:flex-end;gap:7px;padding:0 10px 4px;line-height:1.2;
-    background:#fff;border:0;border-right:2px solid #CFCBBE;border-bottom:2px solid #CFCBBE;border-radius:6px;box-shadow:0 1px 3px rgba(0,0,0,.10);
+    background:#fff;border:0;border-right:5px solid var(--ink);border-bottom:2px solid #CFCBBE;border-radius:6px;box-shadow:0 1px 3px rgba(0,0,0,.10);
     font-family:inherit;font-size:14px;color:var(--ink);font-weight:700;white-space:nowrap;cursor:pointer;flex:0 0 auto;}
-  .fb i{display:inline-block;width:11px;height:11px;border-radius:3px;flex:0 0 11px;margin-bottom:2px;}
-  .fb .fb-h{font-size:13px;line-height:1;}
+  /* رمز الحالة أبيض داخل مربّع صغير بلونها؛ والحد الأيمن العريض باللون نفسه */
+  .fb .fb-bx{width:20px;height:20px;border-radius:6px;background:var(--ink);color:#fff;display:inline-flex;align-items:center;justify-content:center;flex:0 0 20px;margin-bottom:-1px;}
+  .fb .fb-bx .qi{width:14px;height:14px;stroke-width:2.3;}
+  .fb.fb-neu.on .fb-bx{background:#fff;color:var(--ink);}
+  .fb:disabled .fb-bx{filter:grayscale(.35);}
   .fb .fb-n{margin-right:auto;font-weight:800;color:var(--ink);font-size:14.5px;}
   .fb.on{font-weight:800;box-shadow:inset 0 1px 3px rgba(0,0,0,.12);}
   .fb:disabled{opacity:.45;cursor:default;}
@@ -1334,6 +1340,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.0.3/qrcode.min.js"></script>
-<script src="app.js?v=7c0742e340"></script>
+<script src="app.js?v=6ddf602c35"></script>
 </body>
 </html>

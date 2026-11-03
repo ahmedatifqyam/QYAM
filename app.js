@@ -2466,6 +2466,58 @@ function viewAllowed(v){
 }
 
 
+// ===================== الرموز: مجموعة واحدة بخط رفيع، تأخذ لون النص أو لون الحالة =====================
+// المصافحة من مجموعة Lucide (رخصة ISC)، والبقية مرسومة بالأسلوب نفسه
+const QI = {
+  all:'<path d="M9 6h12M9 12h12M9 18h12"/><path d="M4 6h.01M4 12h.01M4 18h.01" stroke-width="3"/>',
+  me:'<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6 8-6s8 2 8 6"/>',
+  alarm:'<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2M5 3 2 6M22 6l-3-3M6.4 19.6 4 22M17.6 19.6 20 22"/>',
+  review:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h5"/><path d="M14 2v6h6M20 8v3"/><path d="M18.4 13.6a1.9 1.9 0 0 1 2.7 2.7L16 21.4l-3.4.9.9-3.4z"/>',
+  hour:'<path d="M5 2h14M5 22h14"/><path d="M7 2v3c0 3 5 4.5 5 7s-5 4-5 7v3M17 2v3c0 3-5 4.5-5 7s5 4 5 7v3"/>',
+  bank:'<path d="M3 22h18M5 18h14M6 18v-7M10 18v-7M14 18v-7M18 18v-7M12 2l9 5H3z"/>',
+  done:'<circle cx="12" cy="12" r="9.5"/><path d="m7.8 12.3 2.9 2.9 5.5-6.2"/>',
+  rej:'<path d="M8 2h8l6 6v8l-6 6H8l-6-6V8z"/><path d="m15 9-6 6M9 9l6 6"/>',
+  ban:'<circle cx="12" cy="12" r="9.5"/><path d="m5.3 5.3 13.4 13.4"/>',
+  hand:'<path d="m11 17 2 2a1 1 0 1 0 3-3"/><path d="m14 14 2.5 2.5a1 1 0 1 0 3-3l-3.88-3.88a3 3 0 0 0-4.24 0l-.88.88a1 1 0 1 1-3-3l2.81-2.81a5.79 5.79 0 0 1 7.06-.87l.47.28a2 2 0 0 0 1.42.25L21 4"/><path d="m21 3 1 11h-2"/><path d="M3 3 2 14l6.5 6.5a1 1 0 1 0 3-3"/><path d="M3 4h8"/>',
+  eye:'<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+  pdf:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M12 11v7M9 15l3 3 3-3"/>',
+  print:'<path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 14h12v8H6z"/>',
+  stamp:'<path d="M5 22h14"/><path d="M4 18v-2.5A2.5 2.5 0 0 1 6.5 13h11a2.5 2.5 0 0 1 2.5 2.5V18z"/><path d="M14 13V9.5c0-1.5 1-2 1-4a3 3 0 0 0-6 0c0 2 1 2.5 1 4V13"/>',
+  pen:'<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
+  trash:'<path d="M3 6h18M8 6V4h8v2M5.5 6l1 15h11l1-15M10 11v6M14 11v6"/>',
+  save:'<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/>',
+  send:'<g transform="matrix(-1 0 0 1 24 0)"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></g>',
+  plus:'<circle cx="12" cy="12" r="9.5"/><path d="M12 8v8M8 12h8"/>',
+  undo:'<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>',
+  back:'<path d="M5 12h14M13 6l6 6-6 6"/>',
+  recv:'<path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/>',
+  close:'<path d="M18 6 6 18M6 6l12 12"/>'
+};
+function qi(name, cls){ return QI[name] ? `<svg class="qi${cls ? ' '+cls : ''}" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${QI[name]}</svg>` : ''; }
+// رمز كل زر فعل حسب كلمته: الرمز نفسه للفعل نفسه في كل الصفحات، والكلمة تبقى بجانبه
+const BTN_ICON_EXACT = {'اعتماد':'stamp', 'رفض':'rej', 'رفض لأسباب محاسبية':'rej', 'معاينة الطلب':'eye', 'تحميل PDF':'pdf', 'رجوع':'back',
+  'استرجاع':'undo', 'تأكيد استلام العهدة':'recv', 'عهدة جديدة':'plus', 'طلب صرف جديد':'plus', 'تأكيد إتمام الصرف':'done',
+  'تسجيل التحويل والمتابعة':'bank', 'إلغاء':'close', 'إلغاء ومسح المسودة':'trash'};
+const BTN_ICON_PREFIX = [['إبطال','ban'], ['حذف','trash'], ['تعديل','pen'], ['حفظ','save'], ['إرسال','send'], ['طباعة','print'], ['معاينة','eye'], ['إضافة','plus']];
+function btnIconFor(t){
+  if(BTN_ICON_EXACT[t]) return BTN_ICON_EXACT[t];
+  const hit = BTN_ICON_PREFIX.find(([k])=>t===k || t.startsWith(k+' '));
+  return hit ? hit[1] : '';
+}
+function decorateButtons(){
+  document.querySelectorAll('button.btn, a.btn').forEach(b=>{
+    if(b.dataset.qi || b.querySelector('svg,.spin,.bl1,img') || b.classList.contains('is-busy') || b.hasAttribute('data-no-ico')) return;
+    const raw = (b.textContent||'').replace(/\s+/g,' ').trim();
+    const t = raw.replace(/^[✓✔+→←⟳✎⏰↩]\s*/,'').trim();
+    // الشريط السفلي ضيّق: الزر بكلام طويل يبقى بلا رمز حتى لا يصير ثلاثة أسطر
+    const ico = (b.closest('.global-floating-bar') && t.length>14) ? '' : btnIconFor(t);
+    b.dataset.qi = ico || '-';
+    if(!ico) return;
+    if(t!==raw && b.childNodes.length===1 && b.firstChild.nodeType===3) b.textContent = t;   // الرمز يغني عن العلامة النصية في أول الزر
+    b.insertAdjacentHTML('afterbegin', qi(ico, 'qi-btn'));
+  });
+  document.querySelectorAll('.global-floating-bar .btn svg.qi-btn').forEach(sv=>{ const b = sv.closest('.btn'); if((b.textContent||'').trim().length>14) sv.remove(); });
+}
 // ===================== تلميحات الأزرار: كل زر يشرح نفسه عند الوقوف عليه لحظة =====================
 const BTN_TIPS = {
   'حفظ':'يحفظ التغييرات', 'إلغاء':'يغلق دون حفظ', 'تعديل':'يفتح العنصر للتعديل', 'حذف':'يحذف العنصر (قد يُطلب تأكيد)',
@@ -5476,9 +5528,10 @@ function handedFromNames(r){
 // الشريط الملوّن على يمين بطاقة الطلب بلون حالته (المسنَد إليك تميّزه شارة اليدين 🤝)
 function reqStripStyle(r){ return `border-right:6px solid ${REQ_CAT[reqCat(r)].c};`; }
 // أزرار الفلتر: مربّع اللون والاسم والعدد، بحد أيمن بلون الحالة وحد أسفل وظل خفيف، وعرض واحد ثابت
-function fbtn(k, label, n, on, act, blink){
-  const c = k ? REQ_CAT[k].c : '';
-  const mark = !k ? '' : k==='handed' ? '<span class="fb-h">🤝</span>' : `<i style="background:${c};"></i>`;
+const REQ_CAT_ICON = {review:'review', decision:'hour', finance:'bank', done:'done', rejected:'rej', cancelled:'ban', handed:'hand'};
+function fbtn(k, label, n, on, act, blink, ico, boxC){
+  const c = k ? REQ_CAT[k].c : (boxC || '');
+  const mark = `<span class="fb-bx"${c ? ` style="background:${c};"` : ''}>${qi(k ? REQ_CAT_ICON[k] : (ico || 'all'))}</span>`;
   const tint = c ? (h=>{ const v=parseInt(h.slice(1),16); return `rgba(${v>>16&255},${v>>8&255},${v&255},.14)`; })(c) : '';
   const st = (c ? `border-right-color:${c};` : '') + (on && c ? `background:${tint};border-color:${c};` : '');
   const dis = !on && n===0;
@@ -6088,6 +6141,7 @@ function render(){
   applyPageSections();
   renderMobileTabs();
   ensureBottomBar();
+  decorateButtons();
   scrollActiveTabIntoView();
   fitFilterButtons();
   reapplyFieldErr();
@@ -12598,9 +12652,9 @@ function renderDashboard(app){
         </div>` : ''}
       </div>
       <div class="dash-filt-own">
-        ${fbtn('', 'الكل', visAllOwners.filter(inPeriod).length, ownerSel==='all' && statusFilter==='all', [["dashAll",[]]])}
-        ${fbtn('', 'طلباتي', visAllOwners.filter(r=>r.createdById===myId && inPeriod(r)).length, ownerSel==='mine', [["dashToggleMine",[]]])}
-        ${(myPendingCount || role!=='employee') ? fbtn('', '⏰ بانتظار قرارك', myPendingCount, statusFilter==='mypending', [["dashToggleCat",["mypending"]]], myPendingCount>0 && statusFilter!=='mypending') : ''}
+        ${fbtn('', 'الكل', visAllOwners.filter(inPeriod).length, ownerSel==='all' && statusFilter==='all', [["dashAll",[]]], false, 'all')}
+        ${fbtn('', 'طلباتي', visAllOwners.filter(r=>r.createdById===myId && inPeriod(r)).length, ownerSel==='mine', [["dashToggleMine",[]]], false, 'me')}
+        ${(myPendingCount || role!=='employee') ? fbtn('', 'بانتظار قرارك', myPendingCount, statusFilter==='mypending', [["dashToggleCat",["mypending"]]], myPendingCount>0 && statusFilter!=='mypending', 'alarm', '#d97706') : ''}
       </div>
       <div class="dash-filt-left">${ownerFilterHtml}</div>
     </div>
