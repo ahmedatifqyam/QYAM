@@ -288,7 +288,8 @@ function isUnspecifiedBudget(v){ return !v || v === UNSPECIFIED_BUDGET; }
 const TAIL_FLOW = ['pending_transfer_request','pending_transfer_approval','pending_disbursement','completed'];
 const STEP_LABELS = {
   pending_decision:'قيد اعتماد القرار', pending_transfer_request:'طلب التحويل (المحاسب)',
-  pending_transfer_approval:'اعتماد التحويل (المدير المالي)', pending_disbursement:'إتمام الصرف (المحاسب)', completed:'تم الصرف'
+  pending_transfer_approval:'اعتماد التحويل (المدير المالي)', pending_disbursement:'إتمام الصرف (المحاسب)', completed:'تم الصرف',
+  custody_receipt:'تأكيد استلام العهدة'
 };
 const STATUS_ROLE_MAP = {
   pending_transfer_request:'accountant', pending_transfer_approval:'cfo', pending_disbursement:'accountant',
@@ -542,7 +543,12 @@ function dbCompanyToState(c){
     signatureMode:c.signature_mode||'seq', signatureDir:c.signature_dir||'ltr',
     reviewWindowMinutes:(c.review_window_minutes==null ? 10 : Number(c.review_window_minutes)),
     reviewMode: c.review_mode || 'optional',
-    currency_symbol: c.currency_symbol || 'د.ك'
+    currency_symbol: c.currency_symbol || 'د.ك',
+    // إعدادات العهدة (تظهر بعد تحديث القاعدة؛ قبله تبقى الافتراضية ولا تُرسل في الحفظ)
+    hasCustodyCols: c.custody_max_open!==undefined,
+    custodyMaxOpen: c.custody_max_open==null ? 1 : Number(c.custody_max_open),
+    custodyDefaultDays: c.custody_default_days==null ? 30 : Number(c.custody_default_days),
+    custodyReceiptDays: c.custody_receipt_days==null ? 3 : Number(c.custody_receipt_days)
   };
 }
 
@@ -555,6 +561,7 @@ function mapRequestRow(r){
     verifyCode: r.verify_code||'', isCancelled: !!r.is_cancelled, cancelledAt: r.cancelled_at, cancelledById: r.cancelled_by_id, cancelReason: r.cancel_reason,
     bankTransferRef: r.bank_transfer_ref||'', bankTransferAt: r.bank_transfer_at, fastTracked: !!r.fast_tracked, limitExceeded: !!r.limit_exceeded,
     budgetItemId: r.budget_item_id||null,
+    requestType: r.request_type||'normal',
     beneficiaries:(r.request_beneficiaries||[]).map(b=>({
       name:b.name, nameEn:b.name_en||'', iban:b.iban||'', civilId:b.national_id||'', statement:b.statement||'', notes:b.notes||'',
       amount:Number(b.amount), deduction:Number(b.deduction||0), deductionNote:b.deduction_note||'',
@@ -686,7 +693,7 @@ async function loadAll(){
   state.resetRequests  = d(16).map(r=>({id:r.id, phone:r.phone, userId:r.user_id, companyId:r.company_id,
     status:r.status, requestedAt:r.requested_at, handledBy:r.handled_by, handledAt:r.handled_at}));
   state.pagePerms = d(17);
-  await Promise.all([loadRecurring(), mergeUserPrivate(), loadPeopleNames(), loadMyCompanyNames()]);
+  await Promise.all([loadRecurring(), mergeUserPrivate(), loadPeopleNames(), loadMyCompanyNames(), loadCustodies()]);
   loadBudgetSums();
 }
 
@@ -701,14 +708,18 @@ function reqFingerprint(list){
 async function refreshRequests(){
   if(window._wInFlight) return false;                 // حفظ جارٍ الآن: ننتظر الدورة التالية
   const seq0 = window._wSeq;
-  const {data, error} = await db.from('requests').select('*, request_beneficiaries(*), request_history(*), request_approval_steps(*)').order('created_at', {ascending:true});
+  const [{data, error}, kRes] = await Promise.all([
+    db.from('requests').select('*, request_beneficiaries(*), request_history(*), request_approval_steps(*)').order('created_at', {ascending:true}),
+    fetchCustodies()
+  ]);
   if(error || !data) return null;
   if(window._wSeq !== seq0 || window._wInFlight) return false;   // حدث حفظ أثناء القراءة: البيانات قد تكون أقدم منه فلا تُستعمل
   loadBudgetSums();
   const fresh = data.map(mapRequestRow);
   const changed = reqFingerprint(fresh) !== reqFingerprint(state.requests);
   if(changed) state.requests = fresh;
-  return changed;
+  const kChanged = applyCustodies(kRes);
+  return changed || kChanged;
 }
 function getMyPendingRequests(){
   if(!state.user) return [];
@@ -2402,6 +2413,7 @@ const PAGE_LEVELS = [['none','لا يرى'],['read','قراءة فقط'],['edit'
 const PAGE_LEVEL_RANK = {none:0, read:1, edit:2, full:3};
 const PAGE_CATALOG = [
   {key:'newreq',    label:'طلب صرف جديد',     hint:'من يستطيع إنشاء طلب صرف'},
+  {key:'custody',   label:'العهد',              hint:'«عهدة جديدة» و«عهدي»: طلب عهدة مالية لموظف، وتأكيد استلامها. لا يرى: لا تظهر · قراءة: يرى عهده ولا يطلب جديدة · تعديل أو تحكم كامل: يطلب عهدة. افتراضياً: الجميع'},
   {key:'editreq',   label:'تعديل طلباتي',     hint:'تعديل طلب أرسله المستخدم وما زال مفتوحاً للتعديل (قبل أول اعتماد أو بعد إرجاعه). لا يرى أو قراءة: يرى طلبه ولا يعدّله · تعديل أو تحكم كامل: يعدّله'},
   {key:'revenues',  label:'الإيرادات',         hint:'قراءة: يرى · تعديل: يرد الإيراد · تحكم كامل: يسجّل ويحذف'},
   {key:'recurring', label:'القيود الدورية',    hint:'قراءة: يرى · تعديل: يرحّل ويتخطّى ويعدّل · تحكم كامل: ينشئ القوالب ويحذفها'},
@@ -2444,10 +2456,11 @@ function pageLevel(key){
   return pageDefaultLevel(u.role, key);
 }
 function pageAtLeast(key, need){ return PAGE_LEVEL_RANK[pageLevel(key)] >= PAGE_LEVEL_RANK[need]; }
-const VIEW_PAGE_KEY = {newRequest:'newreq', newRequestChoice:'newreq', analytics:'analytics', revenues:'revenues', recurring:'recurring', ledger:'ledger', budgetReport:'budgetReport', cancelledArchive:'cancelled'};
+const VIEW_PAGE_KEY = {newCustody:'custody', custodyList:'custody', newRequest:'newreq', newRequestChoice:'newreq', analytics:'analytics', revenues:'revenues', recurring:'recurring', ledger:'ledger', budgetReport:'budgetReport', cancelledArchive:'cancelled'};
 function viewAllowed(v){
   const u = state.user; if(!u || u.role==='admin') return true;
   if(v==='newRequest' && state.editingReqId) return pageLevel('editreq')!=='none';   // التعديل له صلاحيته الخاصة
+  if(v==='newCustody' && state.custodyDraft && state.custodyDraft.reqId) return pageLevel('editreq')!=='none';
   const k = VIEW_PAGE_KEY[v];
   return !k || pageLevel(k)!=='none';
 }
@@ -2655,6 +2668,8 @@ function viewNote(){
   if(v==='newRequestChoice') return 'ابدأ طلباً جديداً فارغاً أو انسخ طلباً سابقاً.';
   if(v==='duplicateList') return 'اختر الطلب الذي تريد نسخه طلباً جديداً.';
   if(v==='oldRequests') return 'طلباتك في شركات لم تعد مرتبطاً بها، للمتابعة فقط.';
+  if(v==='custodyList') return 'العهد التي في عهدتك أو طلبتها لغيرك، وحالة كل منها. اضغط أي عهدة لفتح طلبها.';
+  if(v==='newCustody') return (state.custodyDraft && state.custodyDraft.reqId) ? 'عدّل بيانات العهدة ثم اضغط «حفظ التعديلات».' : 'اختر صاحب العهدة والبند والمبلغ والغرض، ثم اضغط «إرسال للاعتماد». تمرّ العهدة بمسار طلب الصرف المعتاد.';
   if(v==='dashboard') return state.dashStatusFilter==='mypending' ? 'الطلبات التي تنتظر قرارك الآن. اضغط أي طلب لفتحه واتخاذ قرارك.' : 'كل طلبات الصرف التي تخصك وحالة كل منها. اضغط أي طلب لفتحه.';
   if(v==='monitor') return 'ما يحدث في الشركة الآن: من ينتظر قراره، وما في يد المالية، وآخر الحركات.';
   if(v==='securityLog') return 'تنبيهات الحماية وأخطاء الواجهة ومحاولات الدخول، وما روجع منها.';
@@ -2682,7 +2697,7 @@ function setAccountSec(i){
 // مجموعات الشريط الجانبي القابلة للفتح والإغلاق: المعاملات المالية | لوحة التحكم | المساعدة
 function inFinArea(){
   const v = state.view;
-  if(['dashboard','detail','newRequest','newRequestChoice','duplicateList','printPreview','revenues','recurring','handovers','oldRequests','monitor','budgetReport','cancelledArchive'].includes(v)) return true;
+  if(['dashboard','detail','newRequest','newRequestChoice','duplicateList','printPreview','revenues','recurring','handovers','oldRequests','monitor','budgetReport','cancelledArchive','custodyList','newCustody'].includes(v)) return true;
   return !inAdminArea() && ['ledger','analytics'].includes(v);
 }
 function inHelpArea(){ return ['guide','sitemap'].includes(state.view); }
@@ -2744,6 +2759,13 @@ function navSections(){
   const hoN = canSeeHandovers() && typeof hoMyPendingToMeCount==='function' ? hoMyPendingToMeCount() : 0;
   if(canSeeHandovers()) req.push({label:'إسناد المعاملات', count:hoN, views:['handovers'], js:[["openHandovers",[]]]});
   out.push({key:'req', ico:'📋', label:'طلبات الصرف', count:pend + hoN, pages:req});
+  if(state.custodyReady && pageLevel('custody')!=='none'){
+    const kN = custodyAwaitingMine().length;
+    out.push({key:'cus', ico:'💼', label:'العهد', count:kN, pages:[
+      {label:'عهدي', count:kN, views:['custodyList'], js:[["openCustodyList",[]]]},
+      {label:'عهدة جديدة', views:['newCustody'], js:[["openNewCustody",[]]]}
+    ]});
+  }
   if(canSeeRevenues()) out.push({key:'rev', ico:'💵', label:'الإيرادات', pages:[{label:'الإيرادات', views:['revenues'], js:[["openRevenues",[0]]]}]});
   if(canSeeRecurring()) out.push({key:'rec', ico:'🔁', label:'القيود الدورية', count:recDueCount(), pages:[{label:'القيود الدورية', views:['recurring'], js:[["openRecurring",[0]]]}]});
   const rep = [];
@@ -3362,7 +3384,7 @@ function renderNewRequestChoice(app){
 
 function renderDuplicateList(app){
   const mode = state.duplicateListMode;
-  let list = state.requests.filter(r=>r.status==='completed' && r.createdById===state.user.id);
+  let list = state.requests.filter(r=>r.status==='completed' && r.createdById===state.user.id && r.requestType!=='custody');
   if(mode==='recurring') list = list.filter(r=>r.isRecurring);
   list = list.slice().reverse();
 
@@ -3385,6 +3407,7 @@ function editRequest(id){
   const req = state.requests.find(r=>r.id===id);
   if(!req || !isEditable(req)) return;
   if(editReqBlocked(req)) return;
+  if(req.requestType==='custody'){ openCustodyEdit(req); return; }
   state.editingReqId = id;
   // البند و«هل يتكرر» كانا يسقطان من المسودّة، فيفتح النموذج بلا البند المحفوظ
   state.draft = {
@@ -4028,69 +4051,22 @@ async function submitDraftInner(){
   const beneRows = beneficiaries.map(b=>({name:b.name, name_en:b.nameEn, iban:b.iban, national_id:b.civilId, statement:b.statement, notes:b.notes, amount:b.amount, deduction:b.deduction, deduction_note:b.deductionNote, extra:b.extra||0, extra_note:b.extraNote}));
 
   if(state.editingReqId){
-    const req = state.requests.find(r=>r.id===state.editingReqId);
-    const newStatus = (req.approvalSteps||[]).length ? 'pending_decision' : 'pending_transfer_request';
-    const newLimitExceeded = checkLimitExceeded(req.centerId, total, beneficiaries);
-    // ما الذي تغيّر فعلاً؟ يُحسب قبل تعديل الطلب، ليُكتب في السجلّ بدل «تعديل الطلب» المجرّدة
-    const wasRecurring = !!req.isRecurring, nowRecurring = !!state.draft.isRecurring;
-    const chg = [];
-    if((req.budgetItemId||null) !== budgetItemId){
-      const bn = budgetItemId ? ((state.budgetItems||[]).find(b=>b.id===budgetItemId)||{}).name : null;
-      chg.push('البند: ' + (bn ? bn : 'غير محدد'));
-    }
-    if(req.reason !== reasonInput) chg.push('العنوان');
-    if(Math.abs((Number(req.totalAmount)||0) - total) > 0.0005) chg.push('المبلغ: من ' + fmtKWDPlain(Number(req.totalAmount)||0) + ' إلى ' + fmtKWDPlain(total));
-    if(wasRecurring !== nowRecurring) chg.push(nowRecurring ? 'صار متكرراً' : 'لم يعد متكرراً');
-    const histEntry = {step: req.status, actor: state.user.name, userId: state.user.id, action:'تعديل الطلب', note: chg.join(' · '), time: fmtDate()};
-    // الترتيب يحمي من نصف تعديل: المستفيدون الجدد أولاً، ثم بيانات الطلب، ثم حذف القدامى.
-    // إن فشلت خطوة يُتراجع عمّا قبلها فيبقى الطلب كما كان تماماً.
-    const {data: oldRows} = await db.from('request_beneficiaries').select('id').eq('request_id', req.id);
-    const oldIds = (oldRows||[]).map(r=>r.id);
-    const insertResult = await db.from('request_beneficiaries').insert(beneRows.map(r=>({...r, request_id:req.id}))).select('id');
-    if(insertResult.error){
-      console.error('إضافة المستفيدين الجدد', insertResult.error);
-      showToast('فشل حفظ المستفيدين الجدد: ' + arDbMessage(insertResult.error) + ' — أُلغي التعديل، والطلب كما كان.', 'error');
-      return;
-    }
-    const newIds = (insertResult.data||[]).map(r=>r.id);
-    // budget_item_id وis_recurring كانا ناقصَين من هذه الجملة، فكان الاختيار يضيع بلا أثر
-    const upd = await db.from('requests').update({reason:reasonInput, detailed_reason:detailedReasonInput||null, total_amount:total, status:newStatus, limit_exceeded:newLimitExceeded, budget_item_id:budgetItemId, is_recurring:nowRecurring, request_notes:requestNotes||null}).eq('id', req.id).select('id');
-    if(!(await dbCheck(upd, 'تحديث بيانات الطلب')) || !upd.data || !upd.data.length){
-      if(newIds.length) await db.from('request_beneficiaries').delete().in('id', newIds);
-      if(!upd.error) showToast('تعذّر حفظ التعديل: الطلب لم يعد قابلاً للتعديل. حدّث الصفحة.','error');
-      return;
-    }
-    req.limitExceeded = newLimitExceeded;
-    req.budgetItemId = budgetItemId;
-    req.isRecurring = nowRecurring;
-    if((req.approvalSteps||[]).length){
-      await dbCheck(await db.from('request_approval_steps').update({status:'pending', acted_at:null}).eq('request_id', req.id), 'إعادة ضبط مسار الاعتماد');
-      req.approvalSteps.forEach(s=>{ s.status='pending'; s.actedAt=null; });
-    }
-    if(oldIds.length>0){
-      await dbCheck(await db.from('request_beneficiaries').delete().in('id', oldIds), 'حذف المستفيدين القدامى بعد التحديث');
-    }
-    await dbCheck(await db.from('request_history').insert({request_id:req.id, step:histEntry.step, actor:histEntry.actor, user_id:histEntry.userId, action:histEntry.action, note:histEntry.note, time:histEntry.time}), 'حفظ سجل التعديل');
-    req.reason = reasonInput;
-    req.detailedReason = detailedReasonInput;
-    req.requestNotes = requestNotes;
-    if(identityDiffs.length) await pushHistory(req, {step:req.status, actor:state.user.name, userId:state.user.id, action:'تنبيه آيبان', note:identityDiffs.map(x=>x.name).join('، ')+' — يختلف عن المسجّل، محفوظ لهذا الطلب فقط', time:fmtDate()});
-    req.beneficiaries = beneficiaries;
-    req.totalAmount = total;
-    req.status = newStatus;
-    req.history.push(histEntry);
-    state.editingReqId = null;
-    state.view='dashboard';
-    state.activeReqId = req.id;
-    render();
+    await applyRequestEdit({reqId: state.editingReqId, reasonInput, detailedReasonInput, budgetItemId, beneficiaries, beneRows, total, requestNotes, identityDiffs, isRecurring: !!d.isRecurring});
     return;
   }
 
+  await createNewRequest({reasonInput, detailedReasonInput, budgetItemId, beneficiaries, beneRows, total, requestNotes, identityDiffs, isRecurring: !!d.isRecurring});
+}
+
+// إنشاء الطلب في القاعدة (مسار الاعتماد والمستفيدون والسجل ونافذة المراجعة) — مشترك بين طلب الصرف وطلب العهدة
+async function createNewRequest(o){
+  const {reasonInput, detailedReasonInput, budgetItemId, beneficiaries, beneRows, total, requestNotes, identityDiffs} = o;
+  const isCustody = o.requestType==='custody';
   const creatorUser = state.users.find(u=>u.id===state.user.id);
   const {steps: rawChain, error: chainError} = buildDecisionChain(creatorUser, state.currentCompanyId);
   if(chainError){
     showToast('تعذّر بناء مسار اعتماد الطلب: '+chainError+'. راجع مدير النظام لتصحيح الهيكل التنظيمي.', 'error');
-    return;
+    return false;
   }
   let chain = rawChain;
   let isFastTracked = false;
@@ -4112,7 +4088,7 @@ async function submitDraftInner(){
   // طلب بلا معتمدين لا يُرسل إلا لمن فُعّل له الانتقال المباشر، أو إن كان التخطي بسبب حد المبلغ الصغير للمركز
   if(chain.length===0 && !isFastTracked && !(creatorUser && creatorUser.directToTransfer)){
     showToast('لا يوجد معتمِد لطلبك، فلا يمكن إرساله بلا اعتماد. حدّد مديراً في حسابك أو اطلب من مدير النظام تفعيل «الانتقال المباشر إلى التحويل».', 'error');
-    return;
+    return false;
   }
   // تحذير تجاوز الرصيد عند الإرسال
   if(budgetItemId){
@@ -4134,7 +4110,7 @@ async function submitDraftInner(){
       + line('− مرتبط (اعتُمد ولم يُدفع)', f.committed)
       + line('− قيد الطلب (قد يُرفض فيعود)', f.pending)
       + `\n\nالطلب سيُرسل ويُسجَّل التجاوز. هل تريد الاستمرار؟`);
-      if(!confirmed) return;
+      if(!confirmed) return false;
       // سيُسجَّل التجاوز بعد حفظ الطلب (بعد معرفة الـ id)
       state._pendingOverrunLog = { budgetItemId, stage:'submit', requestedAmount: total, availableBalance: submitBal };
     }
@@ -4161,7 +4137,7 @@ async function submitDraftInner(){
     dateGreg: dates.greg,
     dateHijri: dates.hijri,
     createdAtRaw: new Date().toISOString(),
-    isRecurring: !!d.isRecurring,
+    isRecurring: !!o.isRecurring,
     fastTracked: isFastTracked,
     limitExceeded: checkLimitExceeded(creatorUser ? creatorUser.centerId : null, total, beneficiaries),
     companyId: state.currentCompanyId,
@@ -4175,18 +4151,22 @@ async function submitDraftInner(){
     date_greg:req.dateGreg, date_hijri:req.dateHijri, is_recurring:req.isRecurring, fast_tracked:req.fastTracked, limit_exceeded:req.limitExceeded,
     budget_item_id: budgetItemId,
     number_prefix: req.numberPrefix, number_suffix: req.numberSuffix, review_until: req.reviewUntil,
-    request_notes: requestNotes || null
+    request_notes: requestNotes || null,
+    ...(isCustody ? {request_type:'custody'} : {})
   });
-  if(!(await dbCheck(reqInsert, 'إنشاء الطلب'))) return;
+  if(!(await dbCheck(reqInsert, 'إنشاء الطلب'))) return false;
+  if(isCustody) req.requestType = 'custody';
+  // العهدة: صفّها يُكتب فور الطلب، فيرفض الخادم مبكراً من بلغ الحد الأقصى، ويُحذف الطلب معه
+  if(o.afterInsert && !(await o.afterInsert(req))){ await db.from('requests').delete().eq('id', req.id); return false; }
   // مسار الاعتماد يبنيه الخادم من الهيكل التنظيمي (qy_set_chain)؛ المتصفح لا يضيف خطوات المسار
   if(initialStatus==='pending_decision'){
     const chainRes = await db.rpc('qy_set_chain', {p_req: req.id, p_reset: false});
-    if(!(await dbCheck(chainRes, 'بناء مسار الاعتماد'))){ await db.from('requests').delete().eq('id', req.id); return; }
+    if(!(await dbCheck(chainRes, 'بناء مسار الاعتماد'))){ await db.from('requests').delete().eq('id', req.id); return false; }
     req.approvalSteps = (chainRes.data||[]).map(mapStepRow);
     if(!req.approvalSteps.length){
       await db.from('requests').delete().eq('id', req.id);
       showToast('تعذّر بناء مسار الاعتماد في الخادم — حدّث الصفحة وحاول مرة أخرى، أو راجع مدير النظام', 'error');
-      return;
+      return false;
     }
   }
   const beneInsert = await db.from('request_beneficiaries').insert(beneRows.map(r=>({...r, request_id:req.id})));
@@ -4198,7 +4178,7 @@ async function submitDraftInner(){
     if(e.hint) msg += ' | ' + e.hint;
     showToast(msg, 'error');
     await db.from('requests').delete().eq('id', req.id);
-    return;
+    return false;
   }
   const h0 = req.history[0];
   await dbCheck(await db.from('request_history').insert({request_id:req.id, step:h0.step, actor:h0.actor, user_id:h0.userId, action:h0.action, note:h0.note, time:h0.time}), 'حفظ سجل الإنشاء');
@@ -4209,7 +4189,7 @@ async function submitDraftInner(){
   try{ const vc = await db.from('requests').select('verify_code').eq('id', req.id).maybeSingle(); req.verifyCode = (vc && vc.data && vc.data.verify_code) || ''; }catch(e){ req.verifyCode = ''; }
   state.requests.push(req);
   if(ATT_REQ_QUEUE.length) await attFlushReqQueue(req.id);
-  clearDraftStorage();
+  if(!isCustody) clearDraftStorage();
   // تسجيل تجاوز الرصيد إن وُجد
   if(state._pendingOverrunLog){
     const ol = state._pendingOverrunLog;
@@ -4218,15 +4198,79 @@ async function submitDraftInner(){
   }
   if(winMin <= 0){
     await finalizeRequestNow(req, {silent:true});
-    showToast('تم إرسال الطلب بنجاح — رقمه ' + (req.number||''), 'success');
+    showToast((isCustody ? 'تم إرسال طلب العهدة — رقمه ' : 'تم إرسال الطلب بنجاح — رقمه ') + (req.number||''), 'success');
   }else{
-    showToast(`تم حفظ الطلب — أمامك ${winMin} ${winMin===1?'دقيقة':'دقائق'} لمراجعته قبل الإرسال النهائي. `
+    showToast(`${isCustody ? 'تم حفظ طلب العهدة' : 'تم حفظ الطلب'} — أمامك ${winMin} ${winMin===1?'دقيقة':'دقائق'} لمراجعته قبل الإرسال النهائي. `
             + 'لم يأخذ رقماً بعد ولم يصل المعتمدين، ويمكنك تعديله أو حذفه.', 'success');
     startReviewTicker();
   }
-  state.view='dashboard';
+  state.view = o.afterView || 'dashboard';
   state.activeReqId = req.id;
   render();
+  return true;
+}
+
+// حفظ تعديل طلب قائم (مستفيدون جدد ثم بيانات الطلب ثم حذف القدامى) — مشترك بين طلب الصرف وطلب العهدة
+async function applyRequestEdit(o){
+  const {reasonInput, detailedReasonInput, budgetItemId, beneficiaries, beneRows, total, requestNotes, identityDiffs} = o;
+  const req = state.requests.find(r=>r.id===o.reqId);
+  if(!req) return false;
+  const newStatus = (req.approvalSteps||[]).length ? 'pending_decision' : 'pending_transfer_request';
+  const newLimitExceeded = checkLimitExceeded(req.centerId, total, beneficiaries);
+  // ما الذي تغيّر فعلاً؟ يُحسب قبل تعديل الطلب، ليُكتب في السجلّ بدل «تعديل الطلب» المجرّدة
+  const wasRecurring = !!req.isRecurring, nowRecurring = !!o.isRecurring;
+  const chg = [];
+  if((req.budgetItemId||null) !== budgetItemId){
+    const bn = budgetItemId ? ((state.budgetItems||[]).find(b=>b.id===budgetItemId)||{}).name : null;
+    chg.push('البند: ' + (bn ? bn : 'غير محدد'));
+  }
+  if(req.reason !== reasonInput) chg.push('العنوان');
+  if(Math.abs((Number(req.totalAmount)||0) - total) > 0.0005) chg.push('المبلغ: من ' + fmtKWDPlain(Number(req.totalAmount)||0) + ' إلى ' + fmtKWDPlain(total));
+  if(wasRecurring !== nowRecurring) chg.push(nowRecurring ? 'صار متكرراً' : 'لم يعد متكرراً');
+  const histEntry = {step: req.status, actor: state.user.name, userId: state.user.id, action:'تعديل الطلب', note: chg.join(' · '), time: fmtDate()};
+  // الترتيب يحمي من نصف تعديل: المستفيدون الجدد أولاً، ثم بيانات الطلب، ثم حذف القدامى.
+  // إن فشلت خطوة يُتراجع عمّا قبلها فيبقى الطلب كما كان تماماً.
+  const {data: oldRows} = await db.from('request_beneficiaries').select('id').eq('request_id', req.id);
+  const oldIds = (oldRows||[]).map(r=>r.id);
+  const insertResult = await db.from('request_beneficiaries').insert(beneRows.map(r=>({...r, request_id:req.id}))).select('id');
+  if(insertResult.error){
+    console.error('إضافة المستفيدين الجدد', insertResult.error);
+    showToast('فشل حفظ المستفيدين الجدد: ' + arDbMessage(insertResult.error) + ' — أُلغي التعديل، والطلب كما كان.', 'error');
+    return false;
+  }
+  const newIds = (insertResult.data||[]).map(r=>r.id);
+  // budget_item_id وis_recurring كانا ناقصَين من هذه الجملة، فكان الاختيار يضيع بلا أثر
+  const upd = await db.from('requests').update({reason:reasonInput, detailed_reason:detailedReasonInput||null, total_amount:total, status:newStatus, limit_exceeded:newLimitExceeded, budget_item_id:budgetItemId, is_recurring:nowRecurring, request_notes:requestNotes||null}).eq('id', req.id).select('id');
+  if(!(await dbCheck(upd, 'تحديث بيانات الطلب')) || !upd.data || !upd.data.length){
+    if(newIds.length) await db.from('request_beneficiaries').delete().in('id', newIds);
+    if(!upd.error) showToast('تعذّر حفظ التعديل: الطلب لم يعد قابلاً للتعديل. حدّث الصفحة.','error');
+    return false;
+  }
+  req.limitExceeded = newLimitExceeded;
+  req.budgetItemId = budgetItemId;
+  req.isRecurring = nowRecurring;
+  if((req.approvalSteps||[]).length){
+    await dbCheck(await db.from('request_approval_steps').update({status:'pending', acted_at:null}).eq('request_id', req.id), 'إعادة ضبط مسار الاعتماد');
+    req.approvalSteps.forEach(s=>{ s.status='pending'; s.actedAt=null; });
+  }
+  if(oldIds.length>0){
+    await dbCheck(await db.from('request_beneficiaries').delete().in('id', oldIds), 'حذف المستفيدين القدامى بعد التحديث');
+  }
+  await dbCheck(await db.from('request_history').insert({request_id:req.id, step:histEntry.step, actor:histEntry.actor, user_id:histEntry.userId, action:histEntry.action, note:histEntry.note, time:histEntry.time}), 'حفظ سجل التعديل');
+  req.reason = reasonInput;
+  req.detailedReason = detailedReasonInput;
+  req.requestNotes = requestNotes;
+  if(identityDiffs.length) await pushHistory(req, {step:req.status, actor:state.user.name, userId:state.user.id, action:'تنبيه آيبان', note:identityDiffs.map(x=>x.name).join('، ')+' — يختلف عن المسجّل، محفوظ لهذا الطلب فقط', time:fmtDate()});
+  req.beneficiaries = beneficiaries;
+  req.totalAmount = total;
+  req.status = newStatus;
+  req.history.push(histEntry);
+  if(o.afterUpdate) await o.afterUpdate(req);
+  state.editingReqId = null;
+  state.view = o.afterView || 'dashboard';
+  state.activeReqId = req.id;
+  render();
+  return true;
 }
 
 // ═══ أفعال نافذة المراجعة ═════════════════════════════════════════════
@@ -5432,13 +5476,13 @@ function handedFromNames(r){
 // الشريط الملوّن على يمين بطاقة الطلب بلون حالته (المسنَد إليك تميّزه شارة اليدين 🤝)
 function reqStripStyle(r){ return `border-right:6px solid ${REQ_CAT[reqCat(r)].c};`; }
 // أزرار الفلتر: مربّع اللون والاسم والعدد، بحد أيمن بلون الحالة وحد أسفل وظل خفيف، وعرض واحد ثابت
-function fbtn(k, label, n, on, act){
+function fbtn(k, label, n, on, act, blink){
   const c = k ? REQ_CAT[k].c : '';
   const mark = !k ? '' : k==='handed' ? '<span class="fb-h">🤝</span>' : `<i style="background:${c};"></i>`;
   const tint = c ? (h=>{ const v=parseInt(h.slice(1),16); return `rgba(${v>>16&255},${v>>8&255},${v&255},.14)`; })(c) : '';
   const st = (c ? `border-right-color:${c};` : '') + (on && c ? `background:${tint};border-color:${c};` : '');
   const dis = !on && n===0;
-  return `<button type="button" class="fb${k?'':' fb-neu'}${on?' on':''}" style="${st}" ${dis?'disabled':''} ${qon('click', act)} title="${escH(dis ? 'لا توجد طلبات بهذه الحالة' : on ? 'اضغط مرة أخرى لإلغاء هذا الاختيار' : 'اعرض '+label+' فقط')}">${mark}<span class="fb-l">${escH(label)}</span><span class="fb-n">${Number(n).toLocaleString('en')}</span></button>`;
+  return `<button type="button" class="fb${k?'':' fb-neu'}${on?' on':''}${blink?' fb-blink':''}" style="${st}" ${dis?'disabled':''} ${qon('click', act)} title="${escH(dis ? 'لا توجد طلبات بهذه الحالة' : on ? 'اضغط مرة أخرى لإلغاء هذا الاختيار' : 'اعرض '+label+' فقط')}">${mark}<span class="fb-l">${escH(label)}</span><span class="fb-n">${Number(n).toLocaleString('en')}</span></button>`;
 }
 // عرض واحد لكل أزرار الصف: يُقاس أطول زر بعدد من خمس خانات، ويُزاد ١٠٪
 function fitFilterButtons(){
@@ -5667,11 +5711,11 @@ const AMOUNT_TABLE_COLGROUP = `
     <col style="width:12%;"><col style="width:16%;"><col style="width:12%;">
   </colgroup>`;
 
-function buildAmountTableHeader(){
+function buildAmountTableHeader(benLabel){
   return `
     <table class="amount-table amount-table-head">
       ${AMOUNT_TABLE_COLGROUP}
-      <thead><tr><th>#</th><th>المستفيد</th><th>البيان / رقم الهوية / الآيبان</th><th>المبلغ</th><th>ملاحظات</th><th>الإجمالي</th></tr></thead>
+      <thead><tr><th>#</th><th>${benLabel||'المستفيد'}</th><th>البيان / رقم الهوية / الآيبان</th><th>المبلغ</th><th>ملاحظات</th><th>الإجمالي</th></tr></thead>
     </table>`;
 }
 
@@ -5813,6 +5857,11 @@ function measureAndPaginateBeneficiaries(req, headerHtml, footerHtml, signatureO
 
 function renderLetterPages(req){
   const docCompany = state.companies.find(c=>c.id===req.companyId);
+  // سند العهدة: العنوان والنص باسم صاحبها وغرضها وموعد تسويتها، والجدول نفسه (بلا خصم ولا إضافي)
+  const isCus = req.requestType==='custody';
+  const kc = isCus ? custodyOf(req) : null;
+  const cusHolder = isCus ? ((kc && (userById(kc.holderId)||{}).name) || ((req.beneficiaries||[])[0]||{}).name || '') : '';
+  const cusDue = kc ? kc.dueCloseAt : '';
   const salutationText = docCompany ? docCompany.salutationText : 'الإخوة / الإدارة المالية';
   const referenceText = docCompany ? docCompany.referenceText : 'بالإشارة إلى الموضوع أعلاه';
 
@@ -5829,9 +5878,11 @@ function renderLetterPages(req){
       <p class="doc-greeting" style="margin:0;padding-right:0;">تحية طيبة وبعد،...</p>
       <span class="doc-red" style="font-size:14px;font-weight:600;text-decoration:underline;">رقم الطلب: ${req.number || '— قيد المراجعة —'}</span>
     </div>
-    <div class="doc-subject-bar" style="margin-top:4px;">طلب صرف – <span>${escH(req.reason)}</span></div>
+    <div class="doc-subject-bar" style="margin-top:4px;">${isCus ? 'سند عهدة' : 'طلب صرف'} – <span>${escH(req.reason)}</span></div>
     <div style="margin-top:4px;font-size:13px;">بند الصرف: <b>${requestBudgetName(req) ? escH(requestBudgetName(req)) : 'غير محدد'}</b></div>
-    <p class="doc-body-text" style="margin-top:4px;">بالإشارة إلى الموضوع أعلاه، ${referenceText} <span class="doc-red">${escH(req.detailedReason || req.reason)}</span> وفق الجدول الآتي:</p>`;
+    ${isCus
+      ? `<p class="doc-body-text" style="margin-top:4px;">بالإشارة إلى الموضوع أعلاه، يرجى التكرم بالموافقة على صرف عهدة مالية باسم <span class="doc-red">${escH(cusHolder)}</span> لغرض <span class="doc-red">${escH(req.detailedReason || req.reason)}</span>${cusDue ? `، على أن تُسوّى بالفواتير في موعد أقصاه <span class="doc-red">${fmtDateDMY(cusDue)}</span>` : ''}، وفق الجدول الآتي:</p>`
+      : `<p class="doc-body-text" style="margin-top:4px;">بالإشارة إلى الموضوع أعلاه، ${referenceText} <span class="doc-red">${escH(req.detailedReason || req.reason)}</span> وفق الجدول الآتي:</p>`}`;
 
   const footer = `
     <div class="app-total-box">
@@ -5855,7 +5906,7 @@ function renderLetterPages(req){
     }
     return `
       ${isFirst ? header : `<p class="doc-body-text" style="margin-top:0;font-weight:700;">تابع جدول المستفيدين:</p>`}
-      ${buildAmountTableHeader()}
+      ${buildAmountTableHeader(isCus ? 'صاحب العهدة' : '')}
       ${tablesHtml}
       ${isLast ? footer+signatureOverlay : `${renderMiniSignatureRow(req)}<p class="doc-body-text continuation-note">▼ تتمة تفاصيل الطلب بالصفحة التالية</p>`}`;
   });
@@ -6007,6 +6058,8 @@ function render(){
   else if(state.view==='oldRequests') renderOldRequests(app);
   else if(state.view==='pathCheck') renderPathCheckPage(app);
   else if(state.view==='monitor') renderMonitor(app);
+  else if(state.view==='custodyList') renderCustodyList(app);
+  else if(state.view==='newCustody') renderNewCustody(app);
 
   // حقول الدور والشركة وسلسلة الاعتماد يغيّرها مدير النظام وحده (الخادم يمنع غيره) — تُقفل لغيره بدل أن يظهر له خطأ
   if(state.user && state.user.role!=='admin'){
@@ -10171,6 +10224,26 @@ function renderCompanyEditForm(){
           <div class="file-hint" style="margin-top:3px;">ملخص المبلغ بالحروف وعدد المستفيدين والبند وصندوق الملاحظات قبل إرسال الطلب.</div>
         </div>
       </div>
+      ${c.hasCustodyCols ? `<div class="card" style="background:var(--paper);margin-top:10px;">
+        <label>💼 العهد</label>
+        <div class="row">
+          <div>
+            <label>أقصى عدد عهد مفتوحة للشخص</label>
+            <input id="editCoCusMax" type="number" min="1" max="20" step="1" dir="ltr" value="${c.custodyMaxOpen||1}" style="direction:ltr;text-align:center;">
+            <div class="file-hint" style="margin-top:3px;">لا تُفتح للموظف عهدة جديدة إذا بلغت عهده المفتوحة هذا العدد (من 1 إلى 20).</div>
+          </div>
+          <div>
+            <label>مدة العهدة الافتراضية (أيام)</label>
+            <input id="editCoCusDays" type="number" min="1" max="365" step="1" dir="ltr" value="${c.custodyDefaultDays||30}" style="direction:ltr;text-align:center;">
+            <div class="file-hint" style="margin-top:3px;">موعد الإقفال المقترح في نموذج «عهدة جديدة»، ويمكن تغييره لكل عهدة.</div>
+          </div>
+          <div>
+            <label>مهلة تأكيد الاستلام (أيام)</label>
+            <input id="editCoCusRcpt" type="number" min="1" max="60" step="1" dir="ltr" value="${c.custodyReceiptDays||3}" style="direction:ltr;text-align:center;">
+            <div class="file-hint" style="margin-top:3px;">بعدها يُنبَّه صاحب العهدة والمحاسب (التنبيه في مرحلة لاحقة).</div>
+          </div>
+        </div>
+      </div>` : ''}
       ${c.logoData ? `<div class="file-hint">✓ يوجد شعار/ترويسة محفوظة</div>` : ''}
       <label>تحديث الشعار/الترويسة (اختياري)</label>
       <input id="editCoLogo" type="file" accept="image/*">
@@ -10284,6 +10357,12 @@ async function saveCompanyEdit(){
     review_window_minutes: reviewWindow,
     review_mode: (document.getElementById('editCoReviewMode')||{}).value || c.reviewMode || 'optional',
     currency_symbol: currencySymbolVal};
+  if(c.hasCustodyCols){
+    const num = (id, lo, hi, dflt) => { const v = Math.round(Number((document.getElementById(id)||{}).value)); return isFinite(v) && v>=lo && v<=hi ? v : dflt; };
+    updates.custody_max_open = num('editCoCusMax', 1, 20, c.custodyMaxOpen||1);
+    updates.custody_default_days = num('editCoCusDays', 1, 365, c.custodyDefaultDays||30);
+    updates.custody_receipt_days = num('editCoCusRcpt', 1, 60, c.custodyReceiptDays||3);
+  }
   if(file){ updates.logo_data = await readFileAsDataURL(file); }
   const result = await db.from('companies').update(updates).eq('id', c.id);
   if(!(await dbCheck(result, 'تعديل الشركة'))) return;
@@ -10293,6 +10372,7 @@ async function saveCompanyEdit(){
   c.defaultDeadlineDays = defaultDeadlineDays; c.defaultEscalateMode = defaultEscalateMode; c.deadlineDayMode = deadlineDayMode;
   c.reviewWindowMinutes = reviewWindow;
   c.reviewMode = updates.review_mode;
+  if(c.hasCustodyCols){ c.custodyMaxOpen = updates.custody_max_open; c.custodyDefaultDays = updates.custody_default_days; c.custodyReceiptDays = updates.custody_receipt_days; }
   if(updates.logo_data) c.logoData = updates.logo_data;
   state.editingCompanyId = null;
   showToast('تم حفظ تعديلات الشركة', 'success');
@@ -12465,7 +12545,7 @@ function renderDashboard(app){
             return `
             <div class="req-card" data-on-click="openRequest" data-on-click-args="${qa([(''+(r.id))])}" style="${r.limitExceeded ? 'border:3px solid var(--red);' : ''}${reqStripStyle(r)}">
               <span data-label="رقم الطلب" class="req-field-value req-field-wrap" style="font-weight:700;">${r.number || `<span style="color:var(--amber);font-size:12px;">⏳ قيد المراجعة${reviewSecondsLeft(r)>0 ? ` <span data-countdown="${r.id}" dir="ltr" style="unicode-bidi:isolate;font-variant-numeric:tabular-nums;">${fmtCountdown(reviewSecondsLeft(r))}</span>` : ''}</span>`}</span>
-              <span data-label="الموضوع" class="req-field-value req-field-wrap"${r.isCancelled ? ' style="text-decoration:line-through;text-decoration-color:var(--red);text-decoration-thickness:2px;color:var(--muted);"' : ''}>${escH(r.reason)}${r.limitExceeded ? ' <span class="limit-tag">⚠ تجاوز السقف</span>' : ''}</span>
+              <span data-label="الموضوع" class="req-field-value req-field-wrap"${r.isCancelled ? ' style="text-decoration:line-through;text-decoration-color:var(--red);text-decoration-thickness:2px;color:var(--muted);"' : ''}>${escH(r.reason)}${r.requestType==='custody' ? ' <span class="custody-tag">💼 عهدة</span>' : ''}${r.limitExceeded ? ' <span class="limit-tag">⚠ تجاوز السقف</span>' : ''}</span>
               <span data-label="تاريخ الطلب" class="req-field-value">${r.dateGreg ? `<div>${dmyStr(r.dateGreg)}</div><div style="font-size:11px;color:var(--muted);">${createdTimePart}</div>` : '—'}</span>
               <span data-label="تاريخ الصرف" class="req-field-value">${paidEntry ? `<div>${paidDatePart}</div><div style="font-size:11px;color:var(--muted);">${paidTimePart}</div>` : '—'}</span>
               <span data-label="المستفيدون" class="req-field-value" style="padding-right:22px;">${r.beneficiaries.length}</span>
@@ -12520,12 +12600,19 @@ function renderDashboard(app){
       <div class="dash-filt-own">
         ${fbtn('', 'الكل', visAllOwners.filter(inPeriod).length, ownerSel==='all' && statusFilter==='all', [["dashAll",[]]])}
         ${fbtn('', 'طلباتي', visAllOwners.filter(r=>r.createdById===myId && inPeriod(r)).length, ownerSel==='mine', [["dashToggleMine",[]]])}
+        ${(myPendingCount || role!=='employee') ? fbtn('', '⏰ بانتظار قرارك', myPendingCount, statusFilter==='mypending', [["dashToggleCat",["mypending"]]], myPendingCount>0 && statusFilter!=='mypending') : ''}
       </div>
       <div class="dash-filt-left">${ownerFilterHtml}</div>
     </div>
     <div class="fbar no-print">${['review','decision','finance','done','rejected','cancelled','handed'].map(k=>fbtn(k, REQ_CAT[k].label,
         k==='handed' ? periodFiltered.filter(r=>handedFromNames(r).length>0).length : periodFiltered.filter(r=>reqCat(r)===k).length,
         statusFilter===k || (k==='done' && statusFilter==='completed'), [["dashToggleCat",[k]]])).join('')}</div>
+    ${(()=>{ // سطر المجموع: يتبع كل اختيار (الفترة، طلباتي، اللون)
+      const n = displayList.length, sum = displayList.reduce((a,r)=>a+Number(r.totalAmount||0),0);
+      const paid = displayList.filter(r=>r.status==='completed' && !r.isCancelled).reduce((a,r)=>a+Number(r.totalAmount||0),0);
+      const cnt = n===0 ? 'لا طلبات' : n===1 ? 'طلب واحد' : n===2 ? 'طلبان' : n<=10 ? n+' طلبات' : n.toLocaleString('en')+' طلباً';
+      const tail = n===0 ? '' : ` · مجموع مبالغها <b>${fmtKWDHtml(sum)} د.ك</b>` + (paid>0 && Math.abs(paid-sum)>0.0005 ? ` · منها تم صرفه <b>${fmtKWDHtml(paid)} د.ك</b>` : paid>0 ? ' · كلها مصروفة' : '');
+      return `<div class="dash-sum no-print">المعروض: <b>${cnt}</b>${tail}</div>`; })()}
   `;
 
   const statCards = `
@@ -12537,13 +12624,9 @@ function renderDashboard(app){
     </div>
   `;
 
+  // البطاقات الكبيرة والشريط الأصفر وسطر الدور حُذفت: أزرار الفلتر وسطر المجموع تغني عنها
   app.innerHTML = `
     <h1 style="margin:0;">${listTitle==='طلباتي' ? 'طلباتي' : 'طلبات الصرف'}</h1>
-    <div class="title-with-badge">
-      <p class="sub" style="margin:0;">${escH(findRole(role).name)} — ${escH(findRole(role).desc)}</p>
-      ${pendingBadge}
-    </div>
-    ${statCards}
     ${periodBar}
     ${listHtml}
   `;
@@ -12592,7 +12675,7 @@ function renderOldCoPanel(){
       const pd = pe ? toWesternDigits(pe.time).split(' ')[0].replace(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/,(m,d,mo,y)=>dmyJoin(d.padStart(2,'0'),mo.padStart(2,'0'),y)) : '';
       return `<div class="req-card" data-on-click="openRequest" data-on-click-args="${qa([(''+(r.id))])}" style="${reqStripStyle(r)}">
         <span data-label="رقم الطلب" class="req-field-value req-field-wrap" style="font-weight:700;">${escH(r.number||'قيد المراجعة')}</span>
-        <span data-label="الموضوع" class="req-field-value req-field-wrap"${r.isCancelled?' style="text-decoration:line-through;text-decoration-color:var(--red);color:var(--muted);"':''}>${escH(r.reason||'')}<div style="font-size:11px;color:var(--muted);">${escH(coName(r.companyId))}</div></span>
+        <span data-label="الموضوع" class="req-field-value req-field-wrap"${r.isCancelled?' style="text-decoration:line-through;text-decoration-color:var(--red);color:var(--muted);"':''}>${escH(r.reason||'')}${r.requestType==='custody' ? ' <span class="custody-tag">💼 عهدة</span>' : ''}<div style="font-size:11px;color:var(--muted);">${escH(coName(r.companyId))}</div></span>
         <span data-label="تاريخ الطلب" class="req-field-value">${r.dateGreg ? dmyStr(r.dateGreg) : '—'}</span>
         <span data-label="تاريخ الصرف" class="req-field-value">${pd||'—'}</span>
         <span data-label="المستفيدون" class="req-field-value" style="padding-right:22px;">${(r.beneficiaries||[]).length}</span>
@@ -12959,7 +13042,7 @@ function renderAppRequestView(req){
           <col style="width:12%;"><col style="width:16%;"><col style="width:12%;">
         </colgroup>
         <thead><tr>
-          <th style="text-align:center;">#</th><th>المستفيد</th><th>البيان / رقم الهوية / الآيبان</th><th>المبلغ</th><th>ملاحظات</th><th>الإجمالي</th>
+          <th style="text-align:center;">#</th><th>${req.requestType==='custody' ? 'صاحب العهدة' : 'المستفيد'}</th><th>البيان / رقم الهوية / الآيبان</th><th>المبلغ</th><th>ملاحظات</th><th>الإجمالي</th>
         </tr></thead>
         <tbody>${rows}</tbody>
       </table>
@@ -13049,6 +13132,373 @@ function renderBudgetFloat(req){
       </button>
     </div>`;
 }
+// ===================== نظام العهدة — المرحلة الأولى =====================
+// العهدة طلب صرف (رقمه ومساره كأي طلب) ومعه صفّ في custodies يحمل صاحبها وحالتها بعد الصرف.
+// الجدول يُقرأ منفصلاً ويتحمّل غيابه: قبل تحديث القاعدة لا يظهر قسم «العهد» ولا يتعطّل شيء.
+const CUSTODY_STATUS = {
+  requested:        {l:'قيد الاعتماد',            c:'#7c3aed'},
+  awaiting_receipt: {l:'بانتظار تأكيد الاستلام', c:'#d97706'},
+  open:             {l:'مفتوحة',                  c:'#2563eb'},
+  close_requested:  {l:'طُلب إقفالها',            c:'#2563eb'},
+  returned:         {l:'أُعيدت للتصحيح',          c:'#b91c1c'},
+  pending_sign:     {l:'بانتظار توقيع الإدارة',   c:'#d97706'},
+  closed:           {l:'مقفلة',                   c:'#15803d'},
+  cancelled:        {l:'ملغاة',                   c:'#9ca3af'}
+};
+const CUSTODY_LIVE = ['requested','awaiting_receipt','open','close_requested','returned','pending_sign'];
+function mapCustodyRow(k){
+  return {id:Number(k.id), requestId:k.request_id, companyId:k.company_id, holderId:k.holder_id, budgetItemId:k.budget_item_id||null,
+    amount:Number(k.amount||0), purpose:k.purpose||'', carriedIn:Number(k.carried_in||0), carriedFromId:k.carried_from_id||null,
+    status:k.status, dueCloseAt:k.due_close_at||'', receivedAt:k.received_at||null, remainingAction:k.remaining_action||'',
+    remainingAmount:k.remaining_amount==null ? null : Number(k.remaining_amount), settlementNo:k.settlement_no||'',
+    reviewedById:k.reviewed_by_id||null, signedById:k.signed_by_id||null, closedAt:k.closed_at||null,
+    createdById:k.created_by_id, createdAt:k.created_at};
+}
+async function fetchCustodies(){
+  try{ return await db.from('custodies').select('*').order('created_at', {ascending:true}); }catch(e){ return {error:e}; }
+}
+function custodyFingerprint(){ return (state.custodies||[]).map(k=>[k.id,k.status,k.amount,k.receivedAt||'',k.dueCloseAt,k.purpose].join('|')).join(';'); }
+// يعيد: هل تغيّر شيء؟
+function applyCustodies(res){
+  const before = custodyFingerprint(), wasReady = !!state.custodyReady;
+  if(!res || res.error){ state.custodyReady = false; state.custodies = []; }
+  else { state.custodyReady = true; state.custodies = (res.data||[]).map(mapCustodyRow); }
+  return before !== custodyFingerprint() || wasReady !== state.custodyReady;
+}
+async function loadCustodies(){ applyCustodies(await fetchCustodies()); }
+function upsertCustodyLocal(row){
+  const k = mapCustodyRow(row); state.custodies = state.custodies || [];
+  const i = state.custodies.findIndex(x=>x.id===k.id);
+  if(i>=0) state.custodies[i] = k; else state.custodies.push(k);
+  return k;
+}
+function custodyOf(req){ return req ? ((state.custodies||[]).find(k=>k.requestId===req.id) || null) : null; }
+function custodyAwaitingMine(){
+  const u = state.user; if(!u) return [];
+  return (state.custodies||[]).filter(k=>k.holderId===u.id && k.status==='awaiting_receipt' && k.companyId===state.currentCompanyId);
+}
+function custodyOpenCount(holderId, companyId, exceptId){
+  return (state.custodies||[]).filter(k=>k.holderId===holderId && k.companyId===companyId && CUSTODY_LIVE.includes(k.status) && k.id!==exceptId).length;
+}
+function custodyCompany(){ return state.companies.find(c=>c.id===state.currentCompanyId) || {}; }
+function isoDatePlus(days){ const d = new Date(); d.setDate(d.getDate() + (Number(days)||0)); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function custodyOverdue(k){ return !!(k && k.dueCloseAt && ['open','returned','awaiting_receipt'].includes(k.status) && k.dueCloseAt < isoDatePlus(0)); }
+function custodyBadge(k, req){
+  // قبل الصرف تتبع العهدة حال طلبها: مرفوضة تنتظر التعديل، أو ملغاة
+  if(req && k.status==='requested' && req.status==='rejected') return '<span class="badge cus-badge" style="--cb:#b91c1c;">مرفوضة — عدّلها وأعد إرسالها</span>';
+  if(req && req.isCancelled && k.status!=='cancelled') return '<span class="badge cus-badge" style="--cb:#9ca3af;">ملغاة</span>';
+  const st = CUSTODY_STATUS[k.status] || {l:k.status, c:'#6b7280'};
+  return `<span class="badge cus-badge" style="--cb:${st.c};">${escH(st.l)}</span>${custodyOverdue(k) ? ' <span class="badge cus-badge" style="--cb:#b91c1c;">⏰ متأخرة</span>' : ''}`;
+}
+// المبلغ بإشارته في مكانها (‎-14.640) والفلس بخط أصغر
+function cusAmtHtml(v){ const n = Number(v||0); return n<0 ? `<bdi dir="ltr">-${fmtKWDHtml(Math.abs(n))}</bdi>` : fmtKWDHtml(n); }
+// صاحب العهدة المقترح: الآيبان والرقم المدني من سجل المستفيدين إن وُجد، وإلا من حسابه (يصل للمتصفح لصاحبه وحده)
+function custodyHolderBank(u){
+  if(!u) return {iban:'', civilId:''};
+  const m = (state.beneficiaries||[]).find(x=>x.name===u.name && x.companyId===state.currentCompanyId);
+  return {iban:(m && m.iban) || u.iban || '', civilId:(m && m.civilId) || u.civilId || ''};
+}
+
+function openCustodyList(){ state.view = 'custodyList'; render(); window.scrollTo(0,0); }
+function openNewCustody(){
+  if(!state.custodyReady){ showToast('نظام العهدة لم يُفعَّل على قاعدة البيانات بعد', 'error'); return; }
+  const co = custodyCompany(), me = state.user;
+  const holder = companyUsers(state.currentCompanyId).find(u=>u.id===me.id);
+  const bank = custodyHolderBank(holder);
+  state.custodyDraft = {reqId:null, holderId: holder ? holder.id : '', budgetItemId:'', amount:'', purpose:'',
+    due: isoDatePlus(co.custodyDefaultDays||30), iban: bank.iban, civilId: bank.civilId, notes:''};
+  state.view = 'newCustody'; render(); window.scrollTo(0,0);
+}
+function openCustodyEdit(req){
+  const k = custodyOf(req);
+  if(!k){ showToast('سجل هذه العهدة غير موجود — حدّث الصفحة', 'error'); return; }
+  const b = (req.beneficiaries||[])[0] || {};
+  state.custodyDraft = {reqId:req.id, holderId:k.holderId, budgetItemId:req.budgetItemId||'', amount:String(req.totalAmount||''),
+    purpose:k.purpose || req.reason || '', due:k.dueCloseAt || isoDatePlus(30), iban:b.iban||'', civilId:b.civilId||'', notes:req.requestNotes||''};
+  state.view = 'newCustody'; render(); window.scrollTo(0,0);
+}
+function syncCustodyDraft(){
+  const k = state.custodyDraft; if(!k) return;
+  const v = id => { const e = document.getElementById(id); return e ? e.value : null; };
+  [['cusHolder','holderId'],['cusBudget','budgetItemId'],['cusAmount','amount'],['cusPurpose','purpose'],['cusDue','due'],['cusIban','iban'],['cusCivil','civilId'],['cusNotes','notes']]
+    .forEach(([id,key])=>{ const x = v(id); if(x!==null && !(key==='holderId' && k.reqId)) k[key] = x; });
+}
+function onCustodyHolderChange(id){
+  syncCustodyDraft();
+  const k = state.custodyDraft; if(!k || k.reqId) return;
+  k.holderId = id;
+  const bank = custodyHolderBank(userById(id));
+  k.iban = bank.iban; k.civilId = bank.civilId;
+  render();
+}
+
+function renderNewCustody(app){
+  const k = state.custodyDraft;
+  if(!k){ openCustodyList(); return; }
+  const co = custodyCompany(), editing = !!k.reqId;
+  const req = editing ? state.requests.find(r=>r.id===k.reqId) : null;
+  const canSend = editing ? canEditMyRequests(req && req.companyId) : pageAtLeast('custody','edit');
+  const people = companyUsers(state.currentCompanyId).slice().sort((a,b)=>String(a.name).localeCompare(String(b.name),'ar'));
+  const holder = userById(k.holderId);
+  const lim = co.custodyMaxOpen || 1;
+  const open = k.holderId ? custodyOpenCount(k.holderId, state.currentCompanyId, editing ? (custodyOf(req)||{}).id : undefined) : 0;
+  const atLimit = !editing && !!k.holderId && open >= lim;
+  const items = (state.budgetItems||[]).filter(b=>b.company_id===state.currentCompanyId && b.is_active!==false);
+  const why = !state.custodyReady ? 'نظام العهدة لم يُفعَّل على قاعدة البيانات بعد'
+    : !canSend ? (editing ? 'ليست لديك صلاحية «تعديل طلباتي»' : 'ليست لديك صلاحية طلب عهدة (صلاحيتك: قراءة فقط)')
+    : atLimit ? `لدى «${holder ? holder.name : ''}» ${open} عهدة مفتوحة، وهو الحد الأقصى في هذه الشركة (${lim})` : '';
+  app.innerHTML = `
+    <h1>${editing ? 'تعديل العهدة' : 'عهدة جديدة'}</h1>
+    ${req && req.status==='rejected' ? '<div class="warn-box" style="background:rgba(185,28,28,.10);border-right:4px solid #b91c1c;padding:8px 12px;border-radius:8px;margin:8px 0;"><b>✕ مرفوضة</b> — عدّل العهدة ثم أعد إرسالها.</div>' : ''}
+    <div class="card">
+      <div class="row">
+        <div>
+          <label>صاحب العهدة <span style="color:var(--red);">*</span></label>
+          <select id="cusHolder" data-on-change="onCustodyHolderChange" data-on-change-args="${qa([QA.v])}" ${editing ? 'disabled title="صاحب العهدة لا يتغير بعد إنشائها؛ أبطلها وأنشئ عهدة جديدة"' : ''}>
+            <option value="">— اختر الموظف —</option>
+            ${people.map(u=>`<option value="${escH(u.id)}"${u.id===k.holderId?' selected':''}>${escH(u.name)}${u.id===state.user.id ? ' (أنا)' : ''}${u.jobTitle ? ' — '+escH(u.jobTitle) : ''}</option>`).join('')}
+          </select>
+          <div class="file-hint" style="margin-top:3px;">${editing ? 'لا يتغير بعد الإنشاء.' : 'أنت أو أي موظف في الشركة. هو المستفيد في السند.'}</div>
+        </div>
+        <div>
+          <label>بند الميزانية <span style="color:var(--red);">*</span></label>
+          <select id="cusBudget">
+            <option value="">— اختر البند —</option>
+            ${items.map(b=>{ const bal = computeBudgetItemBalance(b.id); return `<option value="${escH(b.id)}"${b.id===k.budgetItemId?' selected':''}>${BUDGET_TYPE_ICONS[b.type]||''} ${escH(b.name)}${bal!=null ? ` (الرصيد: ${fmtKWDPlain(bal)})` : ''}</option>`; }).join('')}
+          </select>
+          <div class="file-hint" style="margin-top:3px;">تُصرف العهدة منه وتُسوّى عليه.</div>
+        </div>
+      </div>
+      ${k.holderId ? `<div class="cus-limit${atLimit ? ' over' : ''}">${atLimit ? '⛔' : 'ℹ️'} عهد «${escH(holder ? holder.name : '')}» المفتوحة في هذه الشركة: <b>${open}</b> من الحد الأقصى <b>${lim}</b>${atLimit ? ' — لا تُفتح له عهدة جديدة حتى تُقفل إحداها أو يرفع مدير النظام الحد.' : ''}</div>` : ''}
+      <div class="row">
+        <div style="--fw:220px;">
+          <label>المبلغ (د.ك) <span style="color:var(--red);">*</span></label>
+          <input id="cusAmount" type="number" min="0" step="0.001" dir="ltr" inputmode="decimal" value="${escH(k.amount||'')}" placeholder="0.000" style="direction:ltr;text-align:center;">
+        </div>
+        <div style="--fw:220px;">
+          <label>موعد الإقفال المتوقع <span style="color:var(--red);">*</span></label>
+          <input id="cusDue" type="date" value="${escH(k.due||'')}" min="${isoDatePlus(0)}">
+          <div class="file-hint" style="margin-top:3px;">الافتراضي ${co.custodyDefaultDays||30} يوماً من اليوم.</div>
+        </div>
+      </div>
+      <label>غرض العهدة <span style="color:var(--red);">*</span></label>
+      <input id="cusPurpose" type="text" maxlength="200" value="${escH(k.purpose||'')}" placeholder="مثال: مصروفات تجهيز معرض الكتاب">
+      <div class="file-hint" style="margin-top:3px;">يكون عنوان الطلب، ويُكتب في السند.</div>
+      <div class="row">
+        <div>
+          <label>الآيبان (اختياري إن كان الصرف نقداً)</label>
+          <input id="cusIban" type="text" dir="ltr" value="${escH(k.iban||'')}" placeholder="KW.." style="direction:ltr;">
+        </div>
+        <div>
+          <label>الرقم المدني (اختياري)</label>
+          <input id="cusCivil" type="text" dir="ltr" value="${escH(k.civilId||'')}" style="direction:ltr;">
+        </div>
+      </div>
+      <label>ملاحظات داخلية (اختياري — لا تُطبع)</label>
+      <textarea id="cusNotes" class="grow-1" rows="1">${escH(k.notes||'')}</textarea>
+      <div class="note-box" style="background:var(--blue-bg);color:var(--text);">
+        تمرّ العهدة بمسار طلب الصرف المعتاد: معتمدو المسار، ثم المحاسب، ثم المدير المالي، ثم الصرف.
+        بعد الصرف يؤكد صاحب العهدة استلامها فتصبح «مفتوحة». لا خصم ولا إضافي في العهدة.
+      </div>
+      <div class="actions-row">
+        <button class="btn btn-primary btn-lg" data-on-click="submitCustody" ${why ? `disabled title="${escH(why)}"` : ''}>${editing ? 'حفظ التعديلات' : 'إرسال للاعتماد'}</button>
+        <button class="btn btn-ghost btn-lg" data-on-click="${editing ? 'cancelCustodyEdit' : 'openCustodyList'}">إلغاء</button>
+      </div>
+      ${why ? `<div class="why-line">${escH(why)}</div>` : ''}
+    </div>`;
+}
+function cancelCustodyEdit(){
+  const id = state.custodyDraft && state.custodyDraft.reqId;
+  state.custodyDraft = null;
+  if(id){ state.activeReqId = id; state.view = 'detail'; render(); } else openCustodyList();
+}
+
+async function submitCustody(){
+  syncCustodyDraft();
+  const k = state.custodyDraft; if(!k) return false;
+  if(!state.custodyReady){ showToast('نظام العهدة لم يُفعَّل على قاعدة البيانات بعد', 'error'); return false; }
+  const editing = !!k.reqId;
+  const holder = userById(k.holderId);
+  if(!holder){ fieldErr('#cusHolder', 'اختر صاحب العهدة'); return false; }
+  if(!k.budgetItemId){ fieldErr('#cusBudget', 'اختر بند الميزانية الذي تُصرف منه العهدة'); return false; }
+  const amount = Math.round(parseFloat(k.amount)*1000)/1000;
+  if(!(amount>0)){ fieldErr('#cusAmount', 'أدخل مبلغ العهدة (أكبر من صفر)'); return false; }
+  const purpose = String(k.purpose||'').trim();
+  if(!purpose){ fieldErr('#cusPurpose', 'اكتب غرض العهدة'); return false; }
+  if(!k.due){ fieldErr('#cusDue', 'حدّد موعد الإقفال المتوقع'); return false; }
+  if(k.due < isoDatePlus(0)){ fieldErr('#cusDue', 'موعد الإقفال المتوقع لا يكون قبل اليوم'); return false; }
+  const co = custodyCompany(), lim = co.custodyMaxOpen || 1;
+  if(!editing && custodyOpenCount(holder.id, state.currentCompanyId) >= lim){
+    fieldErr('#cusHolder', `لدى «${holder.name}» عهد مفتوحة بلغت الحد الأقصى في هذه الشركة (${lim})`); return false;
+  }
+  const bene = {name:holder.name, nameEn:holder.nameEn||'', iban:String(k.iban||'').trim(), civilId:String(k.civilId||'').trim(),
+    statement:purpose, notes:'', amount, deduction:0, deductionNote:'', extra:0, extraNote:''};
+  const beneRows = [{name:bene.name, name_en:bene.nameEn, iban:bene.iban, national_id:bene.civilId, statement:bene.statement, notes:'',
+    amount, deduction:0, deduction_note:'', extra:0, extra_note:''}];
+  let requestNotes = String(k.notes||'').trim();
+  if(!reviewSkipped()){
+    const bi = (state.budgetItems||[]).find(x=>x.id===k.budgetItemId);
+    const ans = await reviewBeforeSend({total:amount, count:1, item: bi ? bi.name : 'غير محدد', notes:requestNotes, diffs:0});
+    if(!ans) return false;
+    requestNotes = ans.notes;
+  }
+  const base = {reasonInput:purpose, detailedReasonInput:'', budgetItemId:k.budgetItemId, beneficiaries:[bene], beneRows, total:amount,
+    requestNotes, identityDiffs:[], isRecurring:false, afterView:'detail'};
+  let ok;
+  if(editing){
+    ok = await applyRequestEdit({...base, reqId:k.reqId, afterUpdate: async req=>{
+      const r = await db.rpc('qy_custody_update', {p_req:req.id, p_purpose:purpose, p_due:k.due});
+      if(await dbCheck(r, 'حفظ غرض العهدة وموعد إقفالها') && r.data) upsertCustodyLocal(r.data);
+      const kk = custodyOf(req); if(kk){ kk.amount = amount; kk.budgetItemId = k.budgetItemId; }
+    }});
+  } else {
+    ok = await createNewRequest({...base, requestType:'custody', afterInsert: async req=>{
+      const r = await db.from('custodies').insert({request_id:req.id, holder_id:holder.id, company_id:state.currentCompanyId,
+        budget_item_id:k.budgetItemId, amount, purpose, due_close_at:k.due}).select('*').maybeSingle();
+      if(!(await dbCheck(r, 'إنشاء سجل العهدة'))) return false;
+      if(r.data) upsertCustodyLocal(r.data);
+      return true;
+    }});
+  }
+  if(ok) state.custodyDraft = null;
+  return ok;
+}
+
+async function confirmCustodyReceipt(id){
+  const k = (state.custodies||[]).find(x=>x.id===Number(id));
+  if(!k) return false;
+  if(k.holderId!==state.user.id){ showToast('تأكيد الاستلام لصاحب العهدة وحده', 'error'); return false; }
+  if(!confirm('تأكيد استلام العهدة؟\n\nتؤكّد أنك استلمت مبلغ ' + fmtKWDPlain(k.amount).replace(/[⁦⁩]/g,'') + '، فتصبح العهدة مفتوحة باسمك وتبدأ تسجيل مصروفاتها.')) return false;
+  const when = fmtDate();
+  const r = await db.rpc('qy_custody_confirm', {p_id:k.id, p_time:when});
+  if(!(await dbCheck(r, 'تأكيد استلام العهدة'))) return false;
+  if(r.data) upsertCustodyLocal(r.data);
+  const req = state.requests.find(x=>x.id===k.requestId);
+  if(req) req.history.push({step:'custody_receipt', actor:state.user.name, userId:state.user.id, action:'تأكيد استلام العهدة', note:'', time:when});
+  showToast('تم تأكيد استلام العهدة — صارت مفتوحة باسمك', 'success');
+  render();
+  return true;
+}
+
+// شريط المراحل التسع: الأربع الأولى من محرك الطلبات، والخمس التالية من العهدة
+function custodyStepperHtml(req, kc){
+  const H = req.history || [];
+  const fromHist = key => { const h = H.slice().reverse().find(x=>x.step===key && (x.action==='اعتماد' || x.action==='تم الصرف')); return h ? {name:h.actor, time:h.time} : null; };
+  const appr = (req.approvalSteps||[]).filter(s=>s.status==='approved').sort((a,b)=>a.sequenceOrder-b.sequenceOrder);
+  const apprNames = appr.map(s=>(userById(s.approverId)||{}).name || '').filter(Boolean);
+  const lastAppr = appr.length ? H.slice().reverse().find(h=>h.action==='اعتماد' && h.userId===appr[appr.length-1].approverId) : null;
+  const rcpt = H.find(h=>h.step==='custody_receipt');
+  const stages = [
+    {label:'طلب العهدة', info:{name:(req.createdBy||'') + (apprNames.length ? ' · اعتمد: ' + apprNames.join('، ') : ''), time: lastAppr ? lastAppr.time : ((H[0]||{}).time || '')}},
+    {label:'موافقة المحاسب', info:fromHist('pending_transfer_request')},
+    {label:'توقيع سند الصرف', info:fromHist('pending_transfer_approval')},
+    {label:'تنفيذ الصرف', info:fromHist('pending_disbursement')},
+    {label:'تأكيد الاستلام', info: rcpt ? {name:rcpt.actor, time:rcpt.time} : null},
+    {label:'تسجيل المصروفات', info:null},
+    {label:'طلب الإقفال', info:null},
+    {label:'اعتماد الإقفال', info:null},
+    {label:'توقيع الإدارة', info:null}
+  ];
+  const STAGE_OF = {pending_decision:0, pending_transfer_request:1, pending_transfer_approval:2, pending_disbursement:3};
+  const ks = kc ? kc.status : 'requested';
+  let idx, rejAt = -1;
+  if(req.status==='rejected'){
+    const rj = H.slice().reverse().find(h=>h.action==='رفض الطلب');
+    rejAt = rj && STAGE_OF[rj.step]!==undefined ? STAGE_OF[rj.step] : 0;
+    idx = rejAt;
+  } else if(req.status==='completed'){
+    idx = {awaiting_receipt:4, open:5, returned:5, close_requested:6, pending_sign:7, closed:9}[ks];
+    if(idx===undefined) idx = 4;
+  } else idx = STAGE_OF[req.status]!==undefined ? STAGE_OF[req.status] : 0;
+  return stages.map((d,i)=>{
+    // ما لم تبلغه المرحلة لا يُعرض فيه اسم (ولو بقي في السجل من دورة قبل الرفض والتعديل)
+    let cls = 'step', info = (i<idx || i===0) ? d.info : null;
+    if(req.isCancelled){ if(i<idx) cls += ' done'; }
+    else if(i===rejAt){ cls += ' rejected'; info = {name:'✕ مرفوضة', time:'', rejected:true}; }
+    else if(i<idx) cls += ' done';
+    else if(i===idx) cls += ' current';
+    return `<div class="${cls}"><div class="dot">${i+1}</div><p>${escH(d.label)}</p>${info ? `<span class="step-approver" style="${info.rejected?'color:var(--red);':''}">${escH(info.name)}</span><span class="step-approve-time">${escH(info.time||'')}</span>` : ''}</div>`;
+  }).join('');
+}
+
+// بطاقة العهدة في صفحة الطلب: صاحبها وحالتها وموعدها، والأرصدة الخمسة، وزر تأكيد الاستلام
+function renderCustodyPanel(req, kc){
+  if(!state.custodyReady) return '';
+  if(!kc) return `<div class="note-box no-print">⚠ طلب عهدة لا يظهر سجل عهدته — حدّث الصفحة، فإن بقي فراجع مدير النظام.</div>`;
+  const holder = userById(kc.holderId), hn = holder ? holder.name : '—';
+  const V = kc.amount, C = kc.carriedIn, R = 0, E = 0, B = Math.round((V + C + R - E)*1000)/1000;
+  const card = (lbl, v, sub) => `<div class="cus-card${v<0 ? ' neg' : ''}${lbl==='المتبقي' ? ' main' : ''}"><div class="cus-card-l">${lbl}</div><div class="cus-card-v">${cusAmtHtml(v)} <span class="cus-unit">د.ك</span></div>${sub ? `<div class="cus-card-s">${sub}</div>` : ''}</div>`;
+  const isHolder = state.user.id===kc.holderId;
+  let act = '';
+  if(kc.status==='awaiting_receipt'){
+    act = isHolder
+      ? `<div class="actions-row no-print" data-bar-actions><button class="btn btn-approve btn-lg" data-on-click="confirmCustodyReceipt" data-on-click-args="${qa([kc.id])}">✓ تأكيد استلام العهدة</button></div>
+         <div class="why-line" style="color:var(--text);">صُرفت العهدة باسمك. أكّد استلامك المبلغ لتصبح مفتوحة وتبدأ تسجيل مصروفاتها.</div>`
+      : `<div class="actions-row no-print no-bar"><button class="btn btn-approve btn-lg" disabled title="التأكيد لصاحب العهدة وحده">✓ تأكيد استلام العهدة</button></div>
+         <div class="why-line">بانتظار تأكيد الاستلام من صاحب العهدة «${escH(hn)}» وحده.</div>`;
+  } else if(kc.status==='requested' && !req.isCancelled){
+    act = `<div class="actions-row no-print no-bar"><button class="btn btn-approve btn-lg" disabled title="يُتاح بعد صرف العهدة">✓ تأكيد استلام العهدة</button></div>
+       <div class="why-line">يُتاح لصاحب العهدة بعد صرفها.</div>`;
+  } else if(['open','returned'].includes(kc.status)){
+    act = `<div class="actions-row no-print no-bar">
+        <button class="btn btn-ghost btn-md" disabled title="في المرحلة الثانية من نظام العهدة">إضافة مصروف</button>
+        <button class="btn btn-ghost btn-md" disabled title="في المرحلة الثانية من نظام العهدة">إضافة مقبوض</button>
+        <button class="btn btn-ghost btn-md" disabled title="في المرحلة الثانية من نظام العهدة">طلب الإقفال</button>
+      </div>
+      <div class="why-line">تسجيل المصروفات والمقبوضات وطلب الإقفال: في المرحلة الثانية من نظام العهدة.</div>`;
+  }
+  return `<div class="cus-panel">
+    <div class="cus-head">
+      <span class="cus-title">💼 عهدة</span>
+      ${custodyBadge(kc, req)}
+      <span>صاحبها: <b>${escH(hn)}</b>${isHolder ? ' (أنت)' : ''}</span>
+      <span>موعد الإقفال المتوقع: <b>${kc.dueCloseAt ? fmtDateDMY(kc.dueCloseAt) : '—'}</b></span>
+      ${kc.receivedAt ? `<span>استُلمت: <b>${fmtDateDMY(String(kc.receivedAt).slice(0,10))}</b></span>` : ''}
+    </div>
+    <div class="cus-cards">
+      ${card('المصروف بالسند', V)}
+      ${card('الرصيد المرحّل', C, C ? 'من العهدة السابقة' : 'لا رصيد سابق')}
+      ${card('مقبوضات إضافية', R)}
+      ${card('المصروف', E)}
+      ${card('المتبقي', B, B<0 ? 'حقّ لصاحب العهدة' : 'يُردّ أو يُرحّل عند الإقفال')}
+    </div>
+    ${act}
+  </div>`;
+}
+
+// صفحة «عهدي»: العهد التي في عهدتي، ثم التي طلبتها لغيري
+function renderCustodyList(app){
+  const me = state.user.id, cid = state.currentCompanyId;
+  const all = (state.custodies||[]).filter(k=>k.companyId===cid).slice().sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));
+  const mine = all.filter(k=>k.holderId===me), forOthers = all.filter(k=>k.createdById===me && k.holderId!==me);
+  const co = custodyCompany(), lim = co.custodyMaxOpen || 1, open = custodyOpenCount(me, cid);
+  const waiting = mine.filter(k=>k.status==='awaiting_receipt');
+  const item = k => {
+    const req = state.requests.find(r=>r.id===k.requestId);
+    const hn = (userById(k.holderId)||{}).name || '';
+    return `<div class="list-item" data-on-click="openRequest" data-on-click-args="${qa([k.requestId])}">
+      <div class="li-main">
+        <b>${escH(req ? req.reason : (k.purpose || 'عهدة'))} — <bdi>${escH(req && req.number ? req.number : 'قيد المراجعة')}</bdi></b>
+        <span>${k.holderId!==me ? 'صاحبها: '+escH(hn)+' · ' : ''}${cusAmtHtml(k.amount)} د.ك · موعد الإقفال: ${k.dueCloseAt ? fmtDateDMY(k.dueCloseAt) : '—'}</span>
+      </div>
+      <div class="cus-li-badges">${custodyBadge(k, req)}</div>
+    </div>`;
+  };
+  const canNew = pageAtLeast('custody','edit');
+  app.innerHTML = `
+    <h1>عهدي</h1>
+    <div class="cus-limit">عهدك المفتوحة في هذه الشركة: <b>${open}</b> من الحد الأقصى <b>${lim}</b>.</div>
+    ${waiting.length ? `<div class="note-box" style="background:var(--amber-bg);color:var(--amber);"><b>⏰ ${waiting.length===1 ? 'عهدة صُرفت لك' : waiting.length+' عهد صُرفت لك'} بانتظار تأكيد استلامك</b> — افتحها واضغط «تأكيد استلام العهدة».</div>` : ''}
+    <div class="actions-row" style="margin-top:10px;">
+      <button class="btn btn-primary btn-md" data-on-click="openNewCustody" ${canNew ? '' : 'disabled title="ليست لديك صلاحية طلب عهدة (قراءة فقط)"'}>+ عهدة جديدة</button>
+    </div>
+    ${canNew ? '' : '<div class="why-line">ليست لديك صلاحية طلب عهدة (صلاحيتك: قراءة فقط).</div>'}
+    <h2 style="margin-top:18px;">في عهدتي</h2>
+    ${mine.length ? mine.map(item).join('') : '<div class="empty">لا عهد باسمك في هذه الشركة</div>'}
+    ${forOthers.length ? `<h2 style="margin-top:18px;">طلبتُها لغيري</h2>${forOthers.map(item).join('')}` : ''}
+  `;
+}
+
 function renderDetail(app){
   const req = state.requests.find(r=>r.id===state.activeReqId);
 
@@ -13202,6 +13652,7 @@ function renderDetail(app){
   }
 
   const isDocView = true;
+  const isCus = req.requestType==='custody', kc = isCus ? custodyOf(req) : null;
 
   app.innerHTML = `
     ${req.isCancelled ? `
@@ -13228,10 +13679,11 @@ function renderDetail(app){
                 <button class="btn btn-reject btn-sm" data-on-click="deleteRequestCfo" data-on-click-args="${qa([(''+(req.id))])}">إبطال الطلب</button>
               </div>` : '')}
           </div>
-          <div class="stepper" style="margin:0;">${stepperHtml}</div>
+          <div class="stepper${isCus ? ' cus-stepper' : ''}" style="margin:0;">${isCus ? custodyStepperHtml(req, kc) : stepperHtml}</div>
         </div>
       </div>
 
+      ${isCus ? renderCustodyPanel(req, kc) : ''}
       ${renderAppRequestView(req)}
 
       ${req.requestNotes ? `<div class="note-box no-print" style="white-space:pre-wrap;margin-top:10px;"><b>ملاحظات الطلب (داخلية):</b>\n${escH(req.requestNotes)}</div>` : ''}
@@ -13260,7 +13712,7 @@ function renderDetail(app){
 }
 
 // ===================== أثر الضغط على الأزرار: انشغال + منع الضغط المزدوج + ✓ عند النجاح =====================
-const BUSY_FNS = ['approve','markDisbursed','resubmit','confirmRejectModal','submitBankTransfer','confirmManualSign','saveAccount','addCompany','addCenter','addCustomRole','addUser','saveUserEdit','saveCenterEdit','saveCompanyEdit','saveSigDesignerConfig','restoreRequest','confirmDeletePassword'];
+const BUSY_FNS = ['submitCustody','confirmCustodyReceipt','approve','markDisbursed','resubmit','confirmRejectModal','submitBankTransfer','confirmManualSign','saveAccount','addCompany','addCenter','addCustomRole','addUser','saveUserEdit','saveCenterEdit','saveCompanyEdit','saveSigDesignerConfig','restoreRequest','confirmDeletePassword'];
 const _busyLocks = {};
 function clickedButton(){
   const ev = window.event, t = ev && ev.target;

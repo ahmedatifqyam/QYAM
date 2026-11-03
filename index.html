@@ -153,6 +153,30 @@
   .status-legend{display:flex;flex-wrap:wrap;gap:6px 16px;margin:0 0 8px;font-size:12px;color:var(--muted);}
   .status-legend span{display:inline-flex;align-items:center;gap:5px;}
   .status-legend i{display:inline-block;width:12px;height:12px;border-radius:3px;}
+  /* نظام العهدة */
+  .custody-tag{display:inline-block;background:#EEF2FF;color:#3730A3;border:1px solid #C7D2FE;border-radius:10px;font-size:11px;font-weight:700;padding:1px 8px;white-space:nowrap;}
+  .badge.cus-badge{background:color-mix(in srgb, var(--cb) 13%, #fff);color:var(--cb);border:1px solid color-mix(in srgb, var(--cb) 40%, #fff);white-space:nowrap;}
+  .cus-panel{border:1px solid var(--line);border-right:4px solid #3730A3;border-radius:10px;padding:12px 14px;margin:12px 0;background:var(--paper);}
+  .cus-head{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;font-size:14px;color:var(--text);}
+  .cus-title{font-weight:800;color:#3730A3;font-size:15px;}
+  .cus-cards{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin-top:10px;}
+  .cus-card{border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:#fff;min-width:0;}
+  .cus-card.main{border-color:#3730A3;background:#EEF2FF;}
+  .cus-card.neg{border:2px solid var(--red);}
+  .cus-card.neg .cus-card-v{color:var(--red);}
+  .cus-card-l{font-size:12.5px;font-weight:700;color:var(--muted);}
+  .cus-card-v{font-size:17px;font-weight:800;color:var(--ink);margin-top:2px;white-space:nowrap;}
+  .cus-unit{font-size:11px;font-weight:600;color:var(--muted);}
+  .cus-card-s{font-size:11px;color:var(--muted);margin-top:2px;}
+  .cus-limit{font-size:13.5px;font-weight:600;color:var(--text);background:var(--blue-bg);border-radius:8px;padding:7px 12px;margin:8px 0;}
+  .cus-limit.over{background:var(--red-bg);color:var(--red);}
+  .cus-li-badges{display:flex;flex-direction:column;gap:3px;align-items:flex-end;}
+  .why-line{font-size:12.5px;font-weight:600;color:var(--muted);margin-top:6px;}
+  .cus-stepper .step{min-width:70px;}
+  .header-actions-flex .stepper.cus-stepper{flex:1 1 100%;flex-wrap:nowrap;overflow-x:auto;padding-bottom:4px;}
+  /* زر معطّل لسبب مكتوب: يبدو معطّلاً بوضوح (غير زر الانشغال المؤقت) */
+  .btn[disabled][title]:not(.is-busy){opacity:.5;cursor:not-allowed;}
+  @media (max-width:700px){ .cus-cards{grid-template-columns:repeat(2,minmax(0,1fr));} .cus-card.main{grid-column:1 / -1;} }
   .req-card .badge.handed-badge,.badge.handed-badge{background:#FEF3C7;color:#92400E;border:1px solid #F5D27A;margin-top:3px;font-size:10.5px;white-space:normal;line-height:1.35;text-overflow:clip;}
   /* أزرار فلتر الطلبات: مربّع اللون والاسم والعدد، حد أيمن (بلون الحالة) وحد أسفل وظل خفيف، ارتفاع ٣٠ (استثناء مقصود من قاعدة ٤٠) وعرض واحد ثابت يُقاس على أطول زر */
   .dash-filt{justify-content:flex-start;}
@@ -161,16 +185,26 @@
   .fbar{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 12px;}
   .fb{height:30px;width:var(--fbw,auto);box-sizing:border-box;display:inline-flex;align-items:flex-end;gap:7px;padding:0 10px 4px;line-height:1.2;
     background:#fff;border:0;border-right:2px solid #CFCBBE;border-bottom:2px solid #CFCBBE;border-radius:6px;box-shadow:0 1px 3px rgba(0,0,0,.10);
-    font-family:inherit;font-size:13px;color:var(--text);font-weight:600;white-space:nowrap;cursor:pointer;flex:0 0 auto;}
+    font-family:inherit;font-size:14px;color:var(--ink);font-weight:700;white-space:nowrap;cursor:pointer;flex:0 0 auto;}
   .fb i{display:inline-block;width:11px;height:11px;border-radius:3px;flex:0 0 11px;margin-bottom:2px;}
   .fb .fb-h{font-size:13px;line-height:1;}
-  .fb .fb-n{margin-right:auto;font-weight:800;color:var(--ink);}
+  .fb .fb-n{margin-right:auto;font-weight:800;color:var(--ink);font-size:14.5px;}
   .fb.on{font-weight:800;box-shadow:inset 0 1px 3px rgba(0,0,0,.12);}
   .fb:disabled{opacity:.45;cursor:default;}
   .fb.fb-neu.on{background:var(--ink);color:#fff;border-color:#0f1820;}
   .fb.fb-neu.on .fb-n{color:#fff;}
   .fb:hover:not(:disabled):not(.on){background:#FAF9F5;}
-  @media (max-width:640px){ .fbar .fb,.dash-filt-own .fb{width:calc(50% - 3px);} .dash-filt-own{width:100%;} }   /* الهاتف: زرّان في كل سطر */
+  @media (max-width:640px){ .fbar .fb,.dash-filt-own .fb{width:calc(50% - 3px);} .dash-filt-own{width:100%;flex-wrap:wrap;} }
+  /* «بانتظار قرارك»: يومض ما دام فيه طلبات تنتظرك */
+  .fb.fb-blink{border-right-color:#d97706;animation:fbBlink 1.4s ease-in-out infinite;}
+  @keyframes fbBlink{0%,100%{background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.10);}50%{background:#FDE7C2;box-shadow:0 0 0 3px rgba(217,119,6,.25);}}
+  @media (prefers-reduced-motion:reduce){ .fb.fb-blink{animation:none;background:#FDE7C2;} }
+  /* سطر المجموع تحت أزرار الفلتر */
+  .dash-sum{font-size:14px;font-weight:600;color:var(--ink);margin:-4px 0 12px;}
+  .dash-sum b{font-weight:800;}
+  /* خط أوضح في قائمة الطلبات: أعرض وأكبر وأغمق */
+  .req-card .req-field-value{font-size:14px;font-weight:600;color:var(--ink);}
+  #app .req-table-head span{font-size:13px;font-weight:800;color:var(--ink);}
   .tab-count{display:inline-block;min-width:18px;padding:0 6px;border-radius:9px;background:#D4AF37;color:#1B2733;font-size:11px;font-weight:700;line-height:18px;margin-right:4px;text-align:center;}
   .admin-nav-item:hover{background:rgba(255,255,255,.08);color:#fff;}
   .admin-nav-item.active{background:rgba(255,255,255,.13);color:#fff;font-weight:600;border-right-color:#D4AF37;}
@@ -1300,6 +1334,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.0.3/qrcode.min.js"></script>
-<script src="app.js?v=76dff45a2b"></script>
+<script src="app.js?v=7c0742e340"></script>
 </body>
 </html>
