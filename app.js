@@ -1112,6 +1112,19 @@ function computeNotifications(){
     items.push({key, kind:'custody_receipt', reqId:String(k.id), number:r ? r.number : '', ts, isNew:(ts>seen || isFreshKey(key)), overdue:(ts>0 && Date.now()-ts > days*86400000),
       title:'صُرفت لك عهدة — أكّد استلامها', sub:((r && r.number) || '')+' — '+(k.purpose || (r && r.reason) || '')+' — '+fmtKWDPlain(k.amount)});
   });
+  // مهام العهدة: المراجِع، المحاسب، الموقّع، وصاحب العهدة حين تعود للتصحيح
+  if(state.custodyReady) (state.custodies||[]).filter(k=>k.companyId===state.currentCompanyId).forEach(k=>{
+    let title = '';
+    if(k.status==='close_requested' && k.reviewerId===me) title = 'عهدة بانتظار مراجعتك';
+    else if(k.status==='acct_review' && me!==k.holderId && ['accountant','cfo'].includes(state.user.role)) title = 'عهدة بانتظار اعتماد المحاسب';
+    else if(k.status==='pending_sign' && ['accountant','cfo'].includes(state.user.role) && ![k.holderId,k.reviewerId,k.reviewedById].includes(me)) title = 'إقفال عهدة بانتظار توقيعك';
+    else if(k.status==='returned' && k.holderId===me) title = 'أُعيدت عهدتك للتصحيح';
+    if(!title) return;
+    const r = state.requests.find(x=>x.id===k.requestId), key = 'ct:'+k.id+':'+k.status;
+    const ts = tsOf(k.closeRequestedAt) || tsOf(k.createdAt);
+    items.push({key, kind:'custody_receipt', reqId:String(k.id), number:r ? r.number : '', ts, isNew:(ts>seen || isFreshKey(key)), overdue:false,
+      title, sub:((r && r.number) || '')+' — '+(k.purpose || '')+' — '+((userById(k.holderId)||{}).name||'')});
+  });
   const horizon = Date.now() - 30*86400000;
   state.requests.filter(r=>r.companyId===state.currentCompanyId && r.createdById===me && !r.isCancelled).forEach(r=>{
     let last = null;
@@ -13481,13 +13494,15 @@ const CUSTODY_STATUS = {
   requested:        {l:'قيد الاعتماد',            c:'#7c3aed'},
   awaiting_receipt: {l:'بانتظار تأكيد الاستلام', c:'#d97706'},
   open:             {l:'مفتوحة',                  c:'#2563eb'},
-  close_requested:  {l:'طُلب إقفالها',            c:'#2563eb'},
+  close_requested:  {l:'عند المراجِع',             c:'#7c3aed'},
+  acct_review:      {l:'عند المحاسب',             c:'#2563eb'},
   returned:         {l:'أُعيدت للتصحيح',          c:'#b91c1c'},
   pending_sign:     {l:'بانتظار توقيع الإدارة',   c:'#d97706'},
   closed:           {l:'مقفلة',                   c:'#15803d'},
   cancelled:        {l:'ملغاة',                   c:'#9ca3af'}
 };
-const CUSTODY_LIVE = ['requested','awaiting_receipt','open','close_requested','returned','pending_sign'];
+const CUSTODY_LIVE = ['requested','awaiting_receipt','open','close_requested','acct_review','returned','pending_sign'];
+const CUS_ACTION = {return_cash:'يُرجَع الباقي نقداً', carry:'يُرحَّل الباقي رصيداً معلّقاً', pay_diff:'يُصرف الفرق لصاحب العهدة', carry_debt:'يُرحَّل الفرق ديناً', none:'لا باقي'};
 function mapCustodyRow(k){
   return {id:Number(k.id), requestId:k.request_id, companyId:k.company_id, holderId:k.holder_id, budgetItemId:k.budget_item_id||null,
     amount:Number(k.amount||0), purpose:k.purpose||'', carriedIn:Number(k.carried_in||0), carriedFromId:k.carried_from_id||null,
@@ -13498,11 +13513,12 @@ function mapCustodyRow(k){
 }
 async function fetchCustodies(){
   try{
-    const [r, l] = await Promise.all([
+    const [r, l, _b] = await Promise.all([
       db.from('custodies').select('*').order('created_at', {ascending:true}),
-      db.from('custody_lines').select('id,custody_id,kind,amount,description,invoice_no,line_date,has_image,status,review_note,created_at').order('id', {ascending:true})
+      db.from('custody_lines').select('id,custody_id,kind,amount,description,invoice_no,line_date,has_image,status,review_note,created_at').order('id', {ascending:true}),
+      db.from('custody_balances').select('*').order('id', {ascending:true})
     ]);
-    if(r && !r.error) r.lines = (l && !l.error) ? (l.data||[]) : null;
+    if(r && !r.error){ r.lines = (l && !l.error) ? (l.data||[]) : null; r.balances = (_b && !_b.error) ? (_b.data||[]) : null; }
     return r;
   }catch(e){ return {error:e}; }
 }
@@ -13518,7 +13534,8 @@ function custodyFingerprint(){ return (state.custodies||[]).map(k=>[k.id,k.statu
 function applyCustodies(res){
   const before = custodyFingerprint(), wasReady = !!state.custodyReady;
   if(!res || res.error){ state.custodyReady = false; state.custodies = []; }
-  else { state.custodyReady = true; state.custodies = (res.data||[]).map(mapCustodyRow); state.custodyLinesReady = !!res.lines; state.custodyLines = (res.lines||[]).map(mapCustodyLine); }
+  else { state.custodyReady = true; state.custodies = (res.data||[]).map(mapCustodyRow); state.custodyLinesReady = !!res.lines; state.custodyLines = (res.lines||[]).map(mapCustodyLine);
+    state.custodyBalancesReady = !!res.balances; state.custodyBalances = (res.balances||[]).map(b=>({id:Number(b.id), holderId:b.holder_id, companyId:b.company_id, amount:Number(b.amount||0), sourceId:b.source_custody_id?Number(b.source_custody_id):null, status:b.status, createdAt:b.created_at, settledAt:b.settled_at})); }
   return before !== custodyFingerprint() || wasReady !== state.custodyReady;
 }
 async function loadCustodies(){ applyCustodies(await fetchCustodies()); }
@@ -13820,7 +13837,7 @@ function custodyLifeStepperHtml(req, kc){
   if(req.isCancelled || ks==='cancelled'){ idx = req.status==='completed' ? 2 : (CUSTODY_TAIL_ST.includes(req.status) ? 1 : 0); bad = idx; badNote = '✕ ملغاة'; }
   else if(req.status==='rejected'){ idx = 0; bad = 0; badNote = '✕ رُفضت — بانتظار التعديل'; }
   else if(req.status!=='completed') idx = CUSTODY_TAIL_ST.includes(req.status) ? 1 : 0;
-  else idx = {awaiting_receipt:2, open:3, returned:3, close_requested:5, pending_sign:5, closed:7}[ks] ?? 2;
+  else idx = {awaiting_receipt:2, open:3, returned:3, close_requested:5, acct_review:5, pending_sign:6, closed:7}[ks] ?? 2;
   const stages = [
     {label:'طلب العهدة', done: lastAppr ? {name:'اعتمدها: ' + apprNames.join('، '), time:lastAppr.time, uid:lastAppr.userId} : {name:'أنشأها: ' + (req.createdBy||''), time:(H[0]||{}).time||'', uid:req.createdById},
       cur: {name: where, time:''}},
@@ -13828,8 +13845,8 @@ function custodyLifeStepperHtml(req, kc){
     {label:'الاستلام', done: rcpt ? {name:rcpt.actor, time:rcpt.time, uid:kc.holderId} : null, cur:{name:'بانتظار تأكيد ' + hn, time:''}},
     {label:'تسجيل المصروفات', done:null, cur:{name: ks==='returned' ? 'أُعيدت للتصحيح' : custodyLinesOf(kc).length + ' سطر', time:''}},
     {label:'طلب الإقفال', done:null, cur:null},
-    {label:'اعتماد الإقفال', done:null, cur:{name: ks==='pending_sign' ? 'بانتظار توقيع الإدارة' : (kc.reviewerId ? 'عند المراجِع ' + ((userById(kc.reviewerId)||{}).name||'') : 'عند المحاسب'), time:''}},
-    {label:'تسوية الباقي', done:null, cur:null}
+    {label:'اعتماد الإقفال', cur:{name: ks==='acct_review' ? 'عند المحاسب' : (kc.reviewerId ? 'عند المراجِع ' + ((userById(kc.reviewerId)||{}).name||'') : 'عند المحاسب'), time:''}, done: (ks==='pending_sign'||ks==='closed') ? {name:'اعتمدها: ' + ((userById(kc.reviewedById)||{}).name||''), time:''} : null},
+    {label:'تسوية الباقي', done: kc.status==='closed' ? {name: CUS_ACTION[kc.remainingAction]||'', time: kc.settlementNo||''} : null, cur:{name:'بانتظار التوقيع — ' + (CUS_ACTION[kc.remainingAction]||''), time:''}}
   ];
   return stages.map((d,i)=>{
     let cls = 'step', info = null, uid = null;
@@ -13880,10 +13897,94 @@ function custodyLinesTableHtml(kc){
       <td>${l.lineDate ? fmtDateDMY(l.lineDate) : ''}</td>
       <td style="color:${l.kind==='expense' ? 'var(--red)' : 'var(--green)'};font-weight:700;">${l.kind==='expense' ? '−' : '+'}${fmtKWDHtml(l.amount)}</td>
       <td class="no-print">${l.hasImage ? `<button type="button" class="btn btn-ghost btn-sm" data-on-click="viewCusLineImage" data-on-click-args="${qa([l.id])}">عرض السند</button>` : '<span class="file-hint">بلا سند</span>'}
+        ${cusCanReviewLines(kc) ? `<button type="button" class="btn ${l.status==='accepted'?'btn-approve':'btn-ghost'} btn-sm" data-on-click="reviewCusLine" data-on-click-args="${qa([l.id, true])}" title="قبول السطر">✓ قبول</button><button type="button" class="btn ${l.status==='rejected'?'btn-reject':'btn-ghost'} btn-sm" data-on-click="reviewCusLine" data-on-click-args="${qa([l.id, false])}" title="رفض السطر بملاحظة">✕ رفض</button>` : ''}
         ${canEdit && l.status!=='accepted' ? `<button type="button" class="btn btn-ghost btn-sm" data-on-click="openCusLineForm" data-on-click-args="${qa([kc.id, l.kind, l.id])}">تعديل</button><button type="button" class="btn btn-reject btn-sm" data-on-click="deleteCusLine" data-on-click-args="${qa([l.id])}">حذف</button>` : ''}</td>
     </tr>`).join('')}</tbody></table>`;
 }
 // نموذج السطر: المبلغ والوصف وصورة السند إلزامية (المصروف من مبلغ تحدده الشركة)؛ رقم الفاتورة والتاريخ اختياريان
+// ===== العهدة — المرحلة الثانية (٢): المراجعة والاعتماد والتوقيع والتسوية =====
+function cusIsFinance(kc){ return !!state.user && (state.user.role==='admin' || (['accountant','cfo'].includes(state.user.role) && userHasCompany(state.users.find(u=>u.id===state.user.id)||state.user, kc.companyId))); }
+function cusCanReviewLines(kc){
+  if(!state.user || state.user.id===kc.holderId) return false;
+  if(kc.status==='close_requested') return state.user.id===kc.reviewerId || state.user.role==='admin';
+  if(kc.status==='acct_review') return cusIsFinance(kc) && ((state.companies.find(c=>c.id===kc.companyId)||{}).custodyReviewMode||'line')==='line';
+  return false;
+}
+function custodyStageActHtml(kc){
+  const me = state.user.id, rv = userById(kc.reviewerId), {B} = custodySums(kc), L = custodyLinesOf(kc);
+  const nd = L.filter(l=>l.status==='draft').length, nr = L.filter(l=>l.status==='rejected').length;
+  if(kc.status==='close_requested'){
+    if(me===kc.reviewerId || state.user.role==='admin'){
+      return `<div class="why-line" style="color:var(--text);">أنت المراجِع: اقبل كل سطر أو ارفضه بملاحظة (ومعه صورة السند)، ثم «إنهاء المراجعة». مرفوض واحد يعيدها لصاحبها بكل الملاحظات.</div>
+        <div class="actions-row no-print" data-bar-actions><button class="btn btn-approve btn-md" data-on-click="cusReviewerDone" data-on-click-args="${qa([kc.id])}" ${nd ? `disabled title="بقي ${nd} سطر لم تراجعه"` : ''}>إنهاء المراجعة</button></div>`;
+    }
+    return `<div class="why-line" style="color:var(--text);">عند المراجِع «${escH(rv ? rv.name : '—')}»${kc.closeRequestedAt ? ' منذ '+fmtDateDMY(String(kc.closeRequestedAt).slice(0,10)) : ''}، ثم المحاسب. لا تُعدَّل السطور الآن.</div>`;
+  }
+  if(kc.status==='acct_review'){
+    if(!cusIsFinance(kc) || me===kc.holderId) return `<div class="why-line" style="color:var(--text);">راجعها «${escH(rv ? rv.name : '—')}»، وهي الآن عند المحاسب.</div>`;
+    const mode = (state.companies.find(c=>c.id===kc.companyId)||{}).custodyReviewMode||'line';
+    const opts = B>0 ? [['return_cash','إرجاع الباقي نقداً للشركة'],['carry','ترحيله رصيداً معلّقاً باسمه (يدخل عهدته التالية)']]
+               : B<0 ? [['pay_diff','صرف الفرق لصاحب العهدة'],['carry_debt','ترحيله ديناً على عهدته التالية']] : [];
+    return `<div class="card cus-line-form no-print">
+      <h2 style="margin:0 0 6px;font-size:16px;">قرار المحاسب</h2>
+      <p class="sub" style="margin:0 0 8px;">${mode==='line' ? 'راجع كل سطر بالقبول أو الرفض، ثم اعتمد الإقفال أو أرجعها للتصحيح.' : 'إعداد الشركة: تُقبل العهدة كلها أو تُرجَع.'} الباقي: <b>${cusAmtHtml(B)} د.ك</b>.</p>
+      ${opts.length ? `<label>معالجة الباقي *</label><select id="cusAction" style="--fw:380px;">${opts.map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select>` : ''}
+      <label>ملاحظة (للإرجاع)</label><input id="cusAcctNote" type="text" maxlength="300" style="--fw:580px;">
+      <div class="actions-row" data-bar-actions>
+        <button class="btn btn-approve btn-md" data-on-click="cusAcctDecide" data-on-click-args="${qa([kc.id, true])}" ${mode==='line' && (nd||nr) ? `disabled title="كل السطور يجب أن تكون مقبولة"` : ''}>اعتماد الإقفال</button>
+        <button class="btn btn-reject btn-md" data-on-click="cusAcctDecide" data-on-click-args="${qa([kc.id, false])}" ${mode==='line' && !nr ? 'disabled title="ارفض السطور التي تحتاج تصحيحاً أولاً"' : ''}>إرجاع للتصحيح</button>
+      </div></div>`;
+  }
+  if(kc.status==='pending_sign'){
+    const blocked = [kc.holderId, kc.reviewerId, kc.reviewedById].includes(me) && state.user.role!=='admin';
+    const canSign = cusIsFinance(kc) && !blocked;
+    return `<div class="why-line" style="color:var(--text);">اعتمدها المحاسب «${escH((userById(kc.reviewedById)||{}).name||'')}»: الباقي <b>${cusAmtHtml(kc.remainingAmount||0)} د.ك</b> — ${escH(CUS_ACTION[kc.remainingAction]||'')}. بانتظار توقيع المدير المالي أو محاسب آخر.</div>
+      <div class="actions-row no-print" ${canSign ? 'data-bar-actions' : ''}><button class="btn btn-approve btn-md" data-on-click="cusSign" data-on-click-args="${qa([kc.id])}" ${canSign ? '' : `disabled title="${blocked ? 'لا يوقّع صاحب العهدة ولا من راجعها أو اعتمدها' : 'التوقيع للمدير المالي أو محاسب'}"`}>توقيع وإقفال العهدة</button></div>`;
+  }
+  // مقفلة: كشف التسوية
+  return `<div class="cus-settle">
+      <div><b>كشف التسوية ${escH(kc.settlementNo||'')}</b> — أُقفلت ${kc.closedAt ? fmtDateDMY(String(kc.closedAt).slice(0,10)) : ''}</div>
+      <div>الباقي: <b>${cusAmtHtml(kc.remainingAmount||0)} د.ك</b> — ${escH(CUS_ACTION[kc.remainingAction]||'')}</div>
+      <div>المراجِع: ${escH((userById(kc.reviewerId)||{}).name||'—')} · اعتمدها: ${escH((userById(kc.reviewedById)||{}).name||'—')} · وقّعها: ${escH((userById(kc.signedById)||{}).name||'—')}</div>
+    </div>
+    <div class="actions-row no-print"><button class="btn btn-ghost btn-md" data-on-click="printCustodySettlement">طباعة كشف التسوية</button></div>`;
+}
+function printCustodySettlement(){ document.body.classList.add('printing-cus'); setTimeout(()=>{ window.print(); setTimeout(()=>document.body.classList.remove('printing-cus'), 500); }, 50); }
+async function cusRefresh(){ applyCustodies(await fetchCustodies()); try{ await refreshRequests(); }catch(e){} render(); }
+async function reviewCusLine(id, ok){
+  let note = '';
+  if(!ok){ note = (prompt('سبب رفض السطر (يراه صاحب العهدة):','')||'').trim(); if(!note) return false; }
+  const r = await db.rpc('qy_custody_review_line', {p_line:Number(id), p_ok:!!ok, p_note:note});
+  if(!(await dbCheck(r, 'مراجعة السطر'))) return false;
+  const row = mapCustodyLine(r.data); const i = state.custodyLines.findIndex(x=>x.id===row.id); if(i>=0) state.custodyLines[i] = row;
+  render(); return true;
+}
+async function cusReviewerDone(id){
+  const r = await db.rpc('qy_custody_reviewer_done', {p_id:Number(id)});
+  if(!(await dbCheck(r, 'إنهاء المراجعة'))) return false;
+  const k = upsertCustodyLocal(r.data);
+  showToast(k.status==='returned' ? 'أُعيدت العهدة لصاحبها بالملاحظات' : 'انتقلت العهدة إلى المحاسب', 'success'); await cusRefresh(); return true;
+}
+async function cusAcctDecide(id, accept){
+  const action = (document.getElementById('cusAction')||{}).value || null, note = ((document.getElementById('cusAcctNote')||{}).value||'').trim();
+  if(accept && !confirm('اعتماد إقفال العهدة؟ بعدها تنتظر التوقيع.')) return false;
+  const r = await db.rpc('qy_custody_acct_decide', {p_id:Number(id), p_accept:!!accept, p_action:action, p_note:note});
+  if(!(await dbCheck(r, 'قرار المحاسب'))) return false;
+  upsertCustodyLocal(r.data); showToast(accept ? 'اعتُمد الإقفال — بانتظار التوقيع' : 'أُعيدت العهدة لصاحبها', 'success'); await cusRefresh(); return true;
+}
+async function cusSign(id){
+  if(!confirm('توقيع إقفال العهدة؟ يُسجَّل قيد البند في الدفتر ولا يُعدَّل شيء بعدها.')) return false;
+  const r = await db.rpc('qy_custody_sign', {p_id:Number(id)});
+  if(!(await dbCheck(r, 'توقيع الإقفال'))) return false;
+  upsertCustodyLocal(r.data); showToast('أُقفلت العهدة', 'success'); await cusRefresh(); return true;
+}
+async function settleCusBalance(id){
+  const note = (prompt('تسوية الرصيد المعلّق نقداً — ملاحظة (مثلاً: أُرجع نقداً عند ترك العمل):','')||'').trim();
+  if(note===null) return false;
+  const r = await db.rpc('qy_custody_balance_settle', {p_id:Number(id), p_note:note});
+  if(!(await dbCheck(r, 'تسوية الرصيد المعلّق'))) return false;
+  showToast('سُوّي الرصيد', 'success'); await cusRefresh(); return true;
+}
 function openCusLineForm(custodyId, kind, lineId){
   state.cusClose = null;
   state.cusLine = {custodyId:Number(custodyId), kind, id:Number(lineId)||0};
@@ -14018,9 +14119,8 @@ function renderCustodyPage(app){
       </div>
       ${kc.status==='returned' ? '<div class="why-line" style="color:var(--red);">أُعيدت العهدة للتصحيح: عدّل السطور المرفوضة ثم اطلب الإقفال من جديد.</div>' : (!can ? `<div class="why-line">التسجيل لصاحب العهدة «${escH(hn)}» وحده.</div>` : '')}
       ${cusLineFormHtml(kc)}${cusCloseFormHtml(kc)}`;
-  } else if(kc.status==='close_requested'){
-    const rv = userById(kc.reviewerId);
-    act = `<div class="why-line" style="color:var(--text);">طُلب إقفالها${kc.closeRequestedAt ? ' في '+fmtDateDMY(String(kc.closeRequestedAt).slice(0,10)) : ''}، وهي عند المراجِع «${escH(rv ? rv.name : '—')}» ثم المحاسب. لا تُعدَّل السطور الآن. (المراجعة والاعتماد في الجزء الثاني.)</div>`;
+  } else if(['close_requested','acct_review','pending_sign','closed'].includes(kc.status)){
+    act = custodyStageActHtml(kc);
   }
   const H = req.history || [];
   app.innerHTML = `
@@ -14068,6 +14168,19 @@ function renderCustodyPage(app){
     </div>`;
 }
 
+// للمالية: كل عهد الشركة غير المقفلة ومرحلتها ومنذ متى، والأرصدة المعلّقة مع «تسوية نقداً»
+function custodyFinanceOverviewHtml(cid){
+  if(!state.user || !['accountant','cfo','admin'].includes(state.user.role)) return '';
+  const live = (state.custodies||[]).filter(k=>k.companyId===cid && ['open','returned','close_requested','acct_review','pending_sign','awaiting_receipt'].includes(k.status));
+  const days = d => d ? Math.max(0, Math.floor((Date.now()-new Date(d).getTime())/86400000)) : 0;
+  const bal = (state.custodyBalances||[]).filter(b=>b.companyId===cid && b.status==='open');
+  if(!live.length && !bal.length) return '';
+  return `<h2 style="margin-top:18px;">عهد الشركة (للمالية)</h2>
+    ${live.length ? `<table class="app-table"><thead><tr><th>صاحبها</th><th>الغرض</th><th style="width:130px;">المبلغ</th><th style="width:200px;">المرحلة</th><th style="width:90px;">منذ</th></tr></thead><tbody>
+      ${live.map(k=>{ const st = CUSTODY_STATUS[k.status]||{l:k.status}; const since = k.status==='close_requested'||k.status==='acct_review'||k.status==='pending_sign' ? k.closeRequestedAt : (k.receivedAt||k.createdAt);
+        return `<tr style="cursor:pointer;" data-on-click="openCustody" data-on-click-args="${qa([k.id])}"><td>${escH((userById(k.holderId)||{}).name||'')}</td><td>${escH(k.purpose||'')}</td><td>${fmtKWDHtml(k.amount)}</td><td>${escH(st.l)}${k.status==='close_requested' ? ' «'+escH((userById(k.reviewerId)||{}).name||'')+'»' : ''}</td><td>${days(since)} يوم</td></tr>`; }).join('')}</tbody></table>` : ''}
+    ${bal.length ? `<h3 style="margin:12px 0 6px;font-size:15px;">أرصدة معلّقة</h3>${bal.map(b=>`<div class="list-item"><div class="li-main"><b>${escH((userById(b.holderId)||{}).name||'')}</b><span>${cusAmtHtml(b.amount)} د.ك ${b.amount>0 ? 'معه للشركة' : 'له على الشركة'}</span></div><button class="btn btn-ghost btn-sm" data-on-click="settleCusBalance" data-on-click-args="${qa([b.id])}" title="عند ترك العمل مثلاً">تسوية نقداً</button></div>`).join('')}` : ''}`;
+}
 // صفحة «عهدي»: العهد التي في عهدتي، ثم التي طلبتها لغيري
 function renderCustodyList(app){
   const me = state.user.id, cid = state.currentCompanyId;
@@ -14096,6 +14209,9 @@ function renderCustodyList(app){
       ${(()=>{ const op = mine.filter(k=>['open','returned'].includes(k.status)); return `<button class="btn btn-ghost btn-md" ${op.length ? `data-on-click="openCusLineFromList" data-on-click-args="${qa([op[0].id])}"` : 'disabled title="لا عهدة مفتوحة باسمك"'} title="تسجيل مصروف على عهدتك المفتوحة">إضافة مصروف</button>`; })()}
     </div>
     ${canNew ? '' : '<div class="why-line">ليست لديك صلاحية طلب عهدة (صلاحيتك: قراءة فقط).</div>'}
+    ${(()=>{ const bal = (state.custodyBalances||[]).filter(b=>b.holderId===me && b.companyId===cid && b.status==='open'); const t = Math.round(bal.reduce((a,b)=>a+b.amount,0)*1000)/1000;
+      return bal.length ? `<div class="note-box">رصيد عهدة معلّق باسمك: <b>${cusAmtHtml(t)} د.ك</b> ${t>0 ? '(معك للشركة)' : '(لك على الشركة)'} — يدخل عهدتك القادمة عند تأكيد استلامها.</div>` : ''; })()}
+    ${custodyFinanceOverviewHtml(cid)}
     <h2 style="margin-top:18px;">في عهدتي</h2>
     ${mine.length ? mine.map(item).join('') : '<div class="empty">لا عهد باسمك في هذه الشركة</div>'}
     ${forOthers.length ? `<h2 style="margin-top:18px;">طلبتُها لغيري</h2>${forOthers.map(item).join('')}` : ''}
@@ -14317,7 +14433,7 @@ function renderDetail(app){
 }
 
 // ===================== أثر الضغط على الأزرار: انشغال + منع الضغط المزدوج + ✓ عند النجاح =====================
-const BUSY_FNS = ['saveCusLine','deleteCusLine','submitCusClose','setUserAvatar','removeUserAvatar','submitCustody','confirmCustodyReceipt','approve','markDisbursed','resubmit','confirmRejectModal','submitBankTransfer','confirmManualSign','saveAccount','addCompany','addCenter','addCustomRole','addUser','saveUserEdit','saveCenterEdit','saveCompanyEdit','saveSigDesignerConfig','restoreRequest','confirmDeletePassword'];
+const BUSY_FNS = ['reviewCusLine','cusReviewerDone','cusAcctDecide','cusSign','settleCusBalance','saveCusLine','deleteCusLine','submitCusClose','setUserAvatar','removeUserAvatar','submitCustody','confirmCustodyReceipt','approve','markDisbursed','resubmit','confirmRejectModal','submitBankTransfer','confirmManualSign','saveAccount','addCompany','addCenter','addCustomRole','addUser','saveUserEdit','saveCenterEdit','saveCompanyEdit','saveSigDesignerConfig','restoreRequest','confirmDeletePassword'];
 const _busyLocks = {};
 function clickedButton(){
   const ev = window.event, t = ev && ev.target;
