@@ -38,7 +38,7 @@
   @media (max-width:1000px){ .brand-co-group .brand-sub{font-size:13px;max-width:200px;} .brand-sep{display:none;} }
   .topbar-right{display:flex;align-items:center;gap:12px;flex-wrap:nowrap;flex:1;justify-content:flex-start;min-width:0;}
   .topbar-right .tb-tools{display:flex;align-items:center;gap:2px;margin-right:auto;min-width:0;}
-  .imp-float{position:fixed;top:calc(var(--topbar-h,66px) + 8px);left:0;right:var(--nav-w,0px);z-index:65;justify-content:center;pointer-events:none;}
+  .imp-float{position:fixed;bottom:calc(var(--bar-h,55px) + 10px);left:0;right:var(--nav-w,0px);z-index:65;justify-content:center;pointer-events:none;}
   .imp-float > *{pointer-events:auto;}
   .imp-pill{background:var(--amber);color:#fff;border-radius:22px;padding:5px 8px 5px 16px;font-size:13px;display:flex;align-items:center;gap:10px;box-shadow:0 6px 18px rgba(0,0,0,.3);}
   .imp-pill button{background:#fff;color:var(--amber);border:none;border-radius:14px;padding:3px 12px;font-weight:700;cursor:pointer;font-size:12.5px;}
@@ -1423,6 +1423,19 @@
     .adm-tabs2{max-width:100%;min-width:0;}
     .adm-tabs2 .adm-t2{flex:0 0 auto;}
   }
+
+  /* ترتيب موحّد لصفحة الطلبات: الفلاتر وبطاقات الحالات والإجماليات على أعمدة متساوية واحدة، فلا تتناثر ولا تختلف عروضها */
+  .dash-filt,.fbar,.dash-sum{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;align-items:end;margin:0 0 10px;}
+  .dash-sum .dash-status{width:auto;display:flex;flex-direction:column;gap:2px;} .dash-sum .dash-status label{font-size:12px;margin:0;} .dash-sum .dash-status select{height:40px;width:100%;}
+  .dash-filt-right,.dash-filt-own,.dash-filt-left{display:contents;}
+  .dash-filt .fb,.fbar .fb,.dash-filt .dash-status{width:100%;min-width:0;}
+  .dash-filt .dash-status{display:flex;flex-direction:column;gap:2px;}
+  .dash-filt .dash-status label{font-size:12px;margin:0;}
+  .dash-filt .dash-status select{height:40px;}
+  .dash-sum .ds-item{width:auto;min-width:0;}
+  @media (max-width:640px){ .dash-filt,.fbar,.dash-sum{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;} .dash-sum{grid-template-columns:repeat(3,minmax(0,1fr));} .dash-sum .dash-status{grid-column:1 / -1;} .dash-filt .fb,.fbar .fb{width:100% !important;} }
+  #app .bar-moved{display:none !important;}
+  @media (max-width:640px){ #app .row > *:has(> #brandSysName), #app .row > *:has(> #brandTag1){flex:1 1 100%;max-width:100%;} #brandTag2{--fw:100%;} }
 </style>
 </head>
 <body>
@@ -1443,6 +1456,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.0.3/qrcode.min.js"></script>
-<script src="app.js?v=aa494aa338"></script>
+<script src="app.js?v=6dc1693b88"></script>
 </body>
 </html>

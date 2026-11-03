@@ -6325,7 +6325,7 @@ function moveRowsToBottomBar(){
     r.setAttribute('data-bar-actions','');
   });
   document.querySelectorAll('#app [data-bar-actions]').forEach(row=>{
-    if(row.closest('.modal-box') || row.offsetParent===null) return;
+    if(row.closest('.modal-box') || (row.offsetParent===null && !row.classList.contains('bar-moved'))) return;
     const key = row.getAttribute('data-bar-key');
     if(key && state.barToggles && state.barToggles[key]===false) return; // هذا الزر مخفي من الشريط السفلي حسب إعداد الأدمن
     // نسطّح الأزرار: أي حاوية وسيطة (مثل زوج معاينة/تحميل) تُفكّك، فيدخل كل زر مباشرة بالصف الواحد
@@ -6347,6 +6347,7 @@ function moveRowsToBottomBar(){
       }
       target.appendChild(copy);
     });
+    if(flat.length) row.classList.add('bar-moved');   // زر واحد يكفي: يبقى في الشريط السفلي ويختفي تكراره في الصفحة
   });
 }
 // يضبط ارتفاع الشريط السفلي الفعلي: مسافة تمرير الحقول + الفاصل السفلي + زر الميزانية العائم
@@ -11590,21 +11591,12 @@ function renderBrandingPanel(){
   return `
     <div class="card">
       <h2 style="margin:0 0 8px;">هوية النظام (لكل الشركات)</h2>
-      <label>اسم النظام</label>
-      <div class="row" style="align-items:flex-end;">
-        <div><input id="brandSysName" type="text" value="${escH(systemName())}" maxlength="60"></div>
-        <div style="flex:0 0 auto;"><button type="button" class="btn btn-primary btn-md" data-on-click="saveSystemName">حفظ الاسم</button></div>
+      <div class="row" style="align-items:flex-start;">
+        <div style="--fw:380px;"><label>اسم النظام</label><input id="brandSysName" type="text" value="${escH(systemName())}" maxlength="60"></div>
+        <div style="--fw:380px;"><label>العبارة تحت الاسم في صفحة الدخول</label><input id="brandTag1" type="text" value="${escH(systemTagline(1))}" maxlength="80" placeholder="فارغ = لا تظهر"></div>
       </div>
-      <label style="margin-top:14px;">العبارة تحت الاسم في صفحة الدخول</label>
-      <div class="row" style="align-items:flex-end;">
-        <div><input id="brandTag1" type="text" style="--fw:380px;" value="${escH(systemTagline(1))}" maxlength="80" placeholder="فارغ = لا تظهر"></div>
-        <div style="flex:0 0 auto;"><button type="button" class="btn btn-primary btn-md" data-on-click="saveSysTagline" data-on-click-args="${qa([1])}" title="تحفظ العبارة الكبيرة تحت اسم النظام">حفظ العبارة</button></div>
-      </div>
-      <label style="margin-top:14px;">سطر الشرح تحت العبارة</label>
-      <div class="row" style="align-items:flex-end;">
-        <div><input id="brandTag2" type="text" style="--fw:580px;" value="${escH(systemTagline(2))}" maxlength="220" placeholder="فارغ = لا يظهر"></div>
-        <div style="flex:0 0 auto;"><button type="button" class="btn btn-primary btn-md" data-on-click="saveSysTagline" data-on-click-args="${qa([2])}" title="يحفظ سطر الشرح الأصغر تحت العبارة">حفظ السطر</button></div>
-      </div>
+      <div style="margin-top:12px;"><label>سطر الشرح تحت العبارة</label><input id="brandTag2" type="text" style="--fw:780px;" value="${escH(systemTagline(2))}" maxlength="220" placeholder="فارغ = لا يظهر"></div>
+      <div style="margin-top:12px;"><button type="button" class="btn btn-primary btn-md" data-on-click="saveSysIdentity">حفظ هوية النظام</button></div>
       <p class="file-hint" style="margin:4px 0 0;">يظهر الاسم والعبارة والسطر في صفحة الدخول قبل أن يدخل أي مستخدم.</p>
       <label style="display:flex;align-items:center;gap:8px;margin-top:14px;font-weight:700;">
         <input type="checkbox" style="width:auto;" ${showAvatars() ? 'checked' : ''} data-on-change="setShowAvatars" data-on-change-args="${qa([QA.c])}" title="يُحفظ فوراً لكل المستخدمين">
@@ -11696,6 +11688,18 @@ async function saveSystemName(){
   if(!(await dbCheck(r, 'حفظ اسم النظام'))) return;
   state.appSettings = state.appSettings||{}; state.appSettings.system_name = v; brandCacheSet('name', v);
   showToast('تم حفظ اسم النظام','success'); render();
+}
+async function saveSysIdentity(){
+  const name = (document.getElementById('brandSysName').value||'').trim();
+  if(!name){ showToast('اسم النظام لا يمكن أن يكون فارغاً','error'); return; }
+  const vals = {system_name:name, system_tagline:(document.getElementById('brandTag1').value||'').trim(), system_tagline2:(document.getElementById('brandTag2').value||'').trim()};
+  for(const [key,v] of Object.entries(vals)){
+    const r = await db.from('app_settings').upsert({key, value:v});
+    if(!(await dbCheck(r, 'حفظ هوية النظام'))) return;
+    state.appSettings = state.appSettings||{}; state.appSettings[key] = v;
+  }
+  brandCacheSet('name', name); brandCacheSet('tagline', vals.system_tagline || '-'); brandCacheSet('tagline2', vals.system_tagline2 || '-');
+  showToast('تم حفظ هوية النظام — تظهر في صفحة الدخول','success'); render();
 }
 async function saveSysTagline(k){
   const key = Number(k)===2 ? 'system_tagline2' : 'system_tagline';
@@ -12889,8 +12893,7 @@ function renderDashboard(app){
         ${fbtn('', 'طلباتي', visAllOwners.filter(r=>r.createdById===myId && inPeriod(r)).length, ownerSel==='mine', [["dashToggleMine",[]]], false, 'me')}
         ${(myPendingCount || role!=='employee') ? fbtn('', 'بانتظار قرارك', myPendingCount, statusFilter==='mypending', [["dashToggleCat",["mypending"]]], myPendingCount>0 && statusFilter!=='mypending', 'alarm', '#d97706') : ''}
       </div>
-      <div class="dash-filt-left">${ownerFilterHtml}</div>
-    </div>
+          </div>
     <div class="fbar no-print">${['review','decision','finance','done','rejected','cancelled','handed'].map(k=>fbtn(k, REQ_CAT[k].label,
         k==='handed' ? periodFiltered.filter(r=>handedFromNames(r).length>0).length : periodFiltered.filter(r=>reqCat(r)===k).length,
         statusFilter===k || (k==='done' && statusFilter==='completed'), [["dashToggleCat",[k]]])).join('')}</div>
@@ -12899,7 +12902,7 @@ function renderDashboard(app){
       const paid = displayList.filter(r=>r.status==='completed' && !r.isCancelled).reduce((a,r)=>a+Number(r.totalAmount||0),0);
       // ثلاث قيم متجاورة، عنوان كل قيمة فوقها: أوضح في القراءة من جملة واحدة طويلة
       const tile = (l, v) => `<div class="ds-item"><div class="ds-l">${l}</div><div class="ds-v">${v}</div></div>`;
-      return `<div class="dash-sum no-print">${tile('عدد الطلبات', n.toLocaleString('en'))}${tile('إجمالي المبالغ', fmtKWDHtml(sum)+' <span class="ds-u">د.ك</span>')}${tile('تم صرفه', fmtKWDHtml(paid)+' <span class="ds-u">د.ك</span>')}</div>`; })()}
+      return `<div class="dash-sum no-print">${tile('عدد الطلبات', n.toLocaleString('en'))}${tile('إجمالي المبالغ', fmtKWDHtml(sum)+' <span class="ds-u">د.ك</span>')}${tile('تم صرفه', fmtKWDHtml(paid)+' <span class="ds-u">د.ك</span>')}${ownerFilterHtml}</div>`; })()}
   `;
 
   const statCards = `
@@ -14435,7 +14438,7 @@ function renderDetail(app){
 }
 
 // ===================== أثر الضغط على الأزرار: انشغال + منع الضغط المزدوج + ✓ عند النجاح =====================
-const BUSY_FNS = ['reviewCusLine','cusReviewerDone','cusAcctDecide','cusSign','settleCusBalance','saveCusLine','deleteCusLine','submitCusClose','setUserAvatar','removeUserAvatar','submitCustody','confirmCustodyReceipt','approve','markDisbursed','resubmit','confirmRejectModal','submitBankTransfer','confirmManualSign','saveAccount','addCompany','addCenter','addCustomRole','addUser','saveUserEdit','saveCenterEdit','saveCompanyEdit','saveSigDesignerConfig','restoreRequest','confirmDeletePassword'];
+const BUSY_FNS = ['saveSysIdentity','reviewCusLine','cusReviewerDone','cusAcctDecide','cusSign','settleCusBalance','saveCusLine','deleteCusLine','submitCusClose','setUserAvatar','removeUserAvatar','submitCustody','confirmCustodyReceipt','approve','markDisbursed','resubmit','confirmRejectModal','submitBankTransfer','confirmManualSign','saveAccount','addCompany','addCenter','addCustomRole','addUser','saveUserEdit','saveCenterEdit','saveCompanyEdit','saveSigDesignerConfig','restoreRequest','confirmDeletePassword'];
 const _busyLocks = {};
 function clickedButton(){
   const ev = window.event, t = ev && ev.target;
