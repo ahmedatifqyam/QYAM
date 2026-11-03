@@ -14528,7 +14528,7 @@ function renderDetail(app){
     const freshChain = freshBuild.steps;
     const stepsRows = (req.approvalSteps||[]).map(s=>{
       const u = state.users.find(x=>x.id===s.approverId);
-      return `<tr><td>${s.sequenceOrder}</td><td>${escH(u ? u.name+' — '+findRole(u.role).name : s.approverId)}</td><td>${escH(s.status)}</td></tr>`;
+      return `<tr><td>${s.sequenceOrder}</td><td>${escH(u ? u.name+' — '+findRole(u.role).name : s.approverId)}</td><td>${escH(({approved:'معتمد',pending:'بانتظار',rejected:'مرفوض',skipped:'مُتخطّى'})[s.status] || s.status)}</td></tr>`;
     }).join('') || '<tr><td colspan="3">لا يوجد أي صف بمسار الاعتماد لهذا الطلب (ذهب مباشرة للذيل التنفيذي)</td></tr>';
     const freshRows = freshChain.map((s,i)=>{
       const u = state.users.find(x=>x.id===s.approverId);
@@ -14537,15 +14537,15 @@ function renderDetail(app){
     debugPanelHtml = `
       <div class="note-box no-print" style="font-size:12px;">
         <b>لوحة تشخيص (أدمن فقط)</b><br>
-        حالة الطلب الحالية: <b>${escH(req.status)}</b> — منشئ الطلب: ${escH(req.createdBy)} (${escH(req.createdById)})<br><br>
-        <b>المسار المخزّن فعلياً بقاعدة البيانات (request_approval_steps):</b>
+        حالة الطلب الحالية: <b>${escH(STEP_LABELS[req.status] || ({pending_decision:'قيد اعتماد القرار',rejected:'مرفوض',completed:'تم الصرف'}[req.status]) || req.status)}</b> — منشئ الطلب: ${escH(req.createdBy)}<br><br>
+        <b>مسار الاعتماد المحفوظ فعلياً في قاعدة البيانات:</b>
         <table style="width:100%;font-size:11px;border-collapse:collapse;margin-top:4px;">
-          <tr style="font-weight:700;"><td>role_label</td><td>المعتمد</td><td>status</td></tr>
+          <tr style="font-weight:700;"><td>الترتيب</td><td>المعتمد</td><td>الحالة</td></tr>
           ${stepsRows}
         </table>
-        <br><b>المسار المحسوب الآن لو أعدنا البناء (buildApprovalChain حسب manager_id الحالي):</b>
+        <br><b>المسار الذي كان سيُبنى الآن لو أُعيد البناء (حسب مدير المنشئ الحالي):</b>
         <table style="width:100%;font-size:11px;border-collapse:collapse;margin-top:4px;">
-          <tr style="font-weight:700;"><td>role_label</td><td>المعتمد</td></tr>
+          <tr style="font-weight:700;"><td>الترتيب</td><td>المعتمد</td></tr>
           ${freshRows}
         </table>
       </div>`;
@@ -14668,3 +14668,54 @@ initApp();
 
 // تثبيت النظام كتطبيق (PWA): عامل خدمة خفيف الشبكة أولاً
 try{ if('serviceWorker' in navigator && location.protocol==='https:' || location.hostname==='localhost'){ window.addEventListener('load',()=>{ navigator.serviceWorker.register('sw.js').catch(()=>{}); }); } }catch(e){}
+
+// ───────── توحيد عرض التاريخ في كل النظام: يوم-شهر-سنة، ويُقرأ من اليمين يوم أولاً ─────────
+// (1) النصوص: أي تاريخ مكتوب yyyy-mm-dd أو dd-mm-yyyy أو dd/mm/yyyy يُعاد بالصيغة الموحّدة.
+// (2) حقول التاريخ: النص الأصلي يتبع لغة المتصفح (شهر/يوم/سنة أو سنة/شهر/يوم)، فنخفيه ونعرض بدله نصاً موحّداً، والقيمة والمنتقي الأصلي كما هما.
+(function(){
+  const RLM='‏';
+  const RE_ISO=/(?<![\d‏-])(20\d{2})[\/-](0[1-9]|1[0-2])[\/-](0[1-9]|[12]\d|3[01])(?![\d-])/g;
+  const RE_DMY=/(?<![\d‏-])(0[1-9]|[12]\d|3[01])[\/-](0[1-9]|1[0-2])[\/-](20\d{2})(?![\d])/g;
+  function normText(t){
+    if(!/\d{2}[\/-]\d{2}[\/-]|20\d{2}[\/-]\d{2}/.test(t)) return t;
+    return t.replace(RE_ISO,(m,y,mo,d)=>dmyJoin(d,mo,y)).replace(RE_DMY,(m,d,mo,y)=>dmyJoin(d,mo,y));
+  }
+  function walk(root){
+    const w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT,{acceptNode(n){
+      const p=n.parentNode; if(!p) return NodeFilter.FILTER_REJECT;
+      const tg=p.nodeName; if(tg==='SCRIPT'||tg==='STYLE'||tg==='TEXTAREA'||tg==='OPTION') return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT; }});
+    const arr=[]; while(w.nextNode()) arr.push(w.currentNode);
+    arr.forEach(n=>{ const v=n.nodeValue, nv=normText(v); if(nv!==v) n.nodeValue=nv; });
+  }
+  function fmtVal(v){ const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(v||''); return m ? dmyJoin(m[3],m[2],m[1]) : ''; }
+  function enhanceInput(inp){
+    if(!inp.dataset.dtx){
+      inp.dataset.dtx='1'; inp.classList.add('dtx');
+      const box=document.createElement('span'); box.className='dt-box';
+      const cs=getComputedStyle(inp);
+      const inFlex=/flex|grid/.test(getComputedStyle(inp.parentNode).display);
+      if(inFlex){ box.style.flex=cs.flex; if(inp.style.width) box.style.width=inp.style.width; box.style.minWidth='0'; }
+      if(cs.display==='block' || inFlex || cs.width.endsWith('px') && inp.style.width==='' ) box.style.display='block';
+      if(inp.style.width && !inFlex) box.style.width=inp.style.width;
+      inp.parentNode.insertBefore(box,inp); box.appendChild(inp);
+      const t=document.createElement('span'); t.className='dt-txt'; box.appendChild(t);
+      inp.addEventListener('click',()=>{ try{ if(inp.showPicker && !inp.disabled && !inp.readOnly) inp.showPicker(); }catch(e){} });
+    }
+    const t=inp.parentNode.querySelector('.dt-txt'); if(!t) return;
+    const f=fmtVal(inp.value);
+    t.textContent=f||'يوم-شهر-سنة'; t.classList.toggle('ph',!f);
+    t.classList.toggle('dis',inp.disabled);
+  }
+  function run(){
+    try{
+      document.querySelectorAll('input[type="date"]').forEach(enhanceInput);
+      const app=document.getElementById('app'); if(app) walk(app);
+      document.querySelectorAll('.modal-overlay,.modal-box,#bellPanel,#searchDrop').forEach(walk);
+    }catch(e){}
+  }
+  let tmr=null; function sched(){ if(tmr) return; tmr=requestAnimationFrame(()=>{ tmr=null; run(); }); }
+  document.addEventListener('input',e=>{ if(e.target && e.target.type==='date') enhanceInput(e.target); },true);
+  document.addEventListener('change',e=>{ if(e.target && e.target.type==='date') enhanceInput(e.target); },true);
+  window.addEventListener('load',()=>{ run(); new MutationObserver(sched).observe(document.body,{childList:true,subtree:true,characterData:false}); setInterval(()=>{ document.querySelectorAll('input[type="date"].dtx').forEach(enhanceInput); },700); });
+})();

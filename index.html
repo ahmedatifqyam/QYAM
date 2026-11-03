@@ -1446,7 +1446,11 @@
   .dash-filt .dash-status select{height:40px;}
   .dash-sum .ds-item{width:auto;min-width:0;}
   @media (max-width:640px){ .dash-filt,.fbar,.dash-sum{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;} .dash-sum{grid-template-columns:repeat(3,minmax(0,1fr));} .dash-sum .dash-status{grid-column:1 / -1;} .dash-filt .fb,.fbar .fb{width:100% !important;} }
-  #app .bar-moved{display:none !important;}
+  /* الشريط السفلي مخفي على الهاتف (يحلّ محلّه شريط التبويب)، فيبقى زر الإجراء داخل الصفحة؛ ويُخفى التكرار عند ظهور الشريط فقط */
+  @media (min-width:700px){ #app .bar-moved{display:none !important;} }
+  body.m-focus #app .bar-moved{display:none !important;}
+  /* شريط «تتصفح الآن كـ» على الهاتف: أسفل الصفحة فوق شريط التبويب، فلا يغطي اسم النظام */
+  @media (max-width:699px){ .imp-float{top:auto;bottom:74px;left:12px;right:12px;justify-content:flex-end;} .imp-pill{font-size:12px;gap:6px;max-width:100%;} .imp-pill span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;} }
   @media (max-width:640px){ #app .row > *:has(> #brandSysName), #app .row > *:has(> #brandTag1){flex:1 1 100%;max-width:100%;} #brandTag2{--fw:100%;} }
 
   /* صفحة المستندات: التفاصيل أو الحقول على اليمين، والمعاينة بجوارها، وشريط الانتقال تحتهما */
@@ -1485,6 +1489,13 @@
   @media (max-width:640px){ .dash-sumrow{flex-wrap:wrap;} #app .dash-grid .fb{width:calc((100% - 16px)/3);flex:0 0 calc((100% - 16px)/3);padding:0 6px;gap:4px;font-size:12px;} #app .dash-grid .fb .fb-n{font-size:12px;} #app .dash-grid .fb .fb-ic{flex:0 0 16px;} #app .dash-grid .fb .fb-ic .qi{width:16px;height:16px;} .dash-sumcard{white-space:normal;height:auto;min-height:40px;padding:6px 10px;line-height:1.6;font-size:12.5px;} .dash-sumrow.has-owner .dash-sumcard{flex:1 1 100%;} #app .dash-sumrow .dash-own-sel{width:100%;flex:1 1 100%;} }
 .req-table-head > span{position:relative;white-space:nowrap;} .req-table-head .sort-ar{position:absolute;right:-14px;top:50%;transform:translateY(-50%);font-style:normal;font-size:10px;}
 .btn.btn-current{white-space:nowrap;width:auto;min-width:150px;}
+/* حقل التاريخ الموحّد: نخفي نص المتصفح ونعرض يوم-شهر-سنة */
+.dt-box{position:relative;display:inline-block;max-width:100%;vertical-align:middle;}
+.dt-box > input.dtx{width:100%;box-sizing:border-box;}
+input.dtx::-webkit-datetime-edit{color:transparent;} input.dtx::-webkit-datetime-edit-fields-wrapper{color:transparent;}
+input.dtx::-webkit-calendar-picker-indicator{cursor:pointer;}
+.dt-txt{position:absolute;inset:0 34px 0 34px;display:flex;align-items:center;justify-content:flex-start;pointer-events:none;color:var(--text);font:inherit;font-size:inherit;direction:rtl;white-space:nowrap;overflow:hidden;}
+.dt-txt.ph{color:#8a8a84;} .dt-txt.dis{opacity:.55;}
 </style>
 </head>
 <body>
@@ -1505,6 +1516,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.0.3/qrcode.min.js"></script>
-<script src="app.js?v=c439146a57"></script>
+<script src="app.js?v=092850592d"></script>
 </body>
 </html>
