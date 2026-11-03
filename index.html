@@ -61,6 +61,22 @@
   .av-btns{display:flex;gap:8px;flex-wrap:wrap;}
   .av-pick{cursor:pointer;}
   /* صفحة الدخول: اسم النظام وسطر يوضح دوره */
+  /* صفحة الدخول: نصفان */
+  .login-split{display:flex;min-height:min(620px, calc(100vh - 150px));margin:0;border-radius:14px;overflow:hidden;border:1px solid var(--line);background:#fff;}
+  .login-brand{flex:1 1 50%;background:var(--ink);color:#fff;display:flex;flex-direction:column;justify-content:center;padding:40px 48px;gap:6px;}
+  .login-brand .lh-logo{height:72px;max-width:200px;object-fit:contain;align-self:flex-start;margin-bottom:10px;}
+  .login-brand .lh-name{font-size:34px;font-weight:900;color:#fff;}
+  .login-brand .lh-tag{font-size:22px;font-weight:800;color:#E8C766;line-height:1.5;margin-top:4px;}
+  .login-brand .lh-pts{list-style:none;padding:0;margin:18px 0 6px;display:flex;flex-direction:column;gap:12px;}
+  .login-brand .lh-pts li{display:flex;align-items:center;gap:10px;font-size:16.5px;font-weight:700;}
+  .login-brand .lh-pts .qi{width:22px;height:22px;color:#E8C766;flex:0 0 22px;}
+  .login-brand .lh-tail{font-size:14.5px;color:rgba(255,255,255,.85);line-height:1.8;margin-top:6px;}
+  .login-form{flex:1 1 50%;display:flex;align-items:center;justify-content:center;padding:30px 20px;}
+  .login-card{width:100%;max-width:380px;margin:0;}
+  .login-card h1{margin:0 0 6px;font-size:24px;}
+  .login-card input:not([type=checkbox]){--fw:100% !important;width:100% !important;max-width:100% !important;box-sizing:border-box;}
+  @media (max-width:760px){ .login-split{flex-direction:column;min-height:0;} .login-brand{padding:22px 20px;} .login-brand .lh-name{font-size:26px;} .login-brand .lh-tag{font-size:17px;} .login-brand .lh-pts{display:none;} .login-brand .lh-tail{display:none;} .login-brand .lh-logo{height:48px;} }
+  body.on-login .brand-name, body.on-login .brand-logo, body.on-login .brand-slot{display:none;}
   .login-hero{text-align:center;margin:8px auto 18px;max-width:660px;}
   .login-hero .lh-logo{height:64px;max-width:200px;object-fit:contain;display:block;margin:0 auto 8px;}
   .login-hero .lh-name{font-size:28px;font-weight:900;color:var(--ink);letter-spacing:0;}
@@ -1417,6 +1433,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.0.3/qrcode.min.js"></script>
-<script src="app.js?v=2d243e4eb2"></script>
+<script src="app.js?v=09d7c2de21"></script>
 </body>
 </html>

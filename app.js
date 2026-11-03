@@ -6207,6 +6207,7 @@ function render(){
   renderAppNav();
   renderDbBadge();
   const app = document.getElementById('app');
+  document.body.classList.toggle('on-login', state.view==='login');
   if(state.view==='login') renderLogin(app);
   else if(state.view==='dashboard') { renderDashboard(app); }
   else if(state.view==='newRequest') renderNewRequest(app);
@@ -12493,33 +12494,39 @@ async function executeDeleteUser(id){
 }
 
 function renderLogin(app){
+  // نصفان: يمين لوحة الهوية (الاسم والشعار والعبارة من الإعدادات)، يسار صندوق الدخول — في شاشة واحدة
+  const pts = (systemTagline(2)||'').split('—')[0].split('·').map(x=>x.trim()).filter(Boolean);
+  const tail = ((systemTagline(2)||'').split('—')[1]||'').trim();
+  const ico = ['review','case','bank','chart'];
   app.innerHTML = `
-    <div class="login-hero">
-      ${systemLogo() ? `<img class="lh-logo" src="${escH(systemLogo())}" alt="">` : ''}
-      <div class="lh-name">${escH(systemName())}</div>
-      ${systemTagline(1) ? `<div class="lh-tag">${escH(systemTagline(1))}</div>` : ''}
-      ${systemTagline(2) ? `<div class="lh-tag2">${escH(systemTagline(2))}</div>` : ''}
-    </div>
-    <h1>تسجيل الدخول</h1>
-    <p class="sub">أدخل رقم الهاتف وكلمة المرور الخاصة بحسابك.</p>
-    <div class="card" style="max-width:360px;">
-      <label>رقم الهاتف</label>
-      <input id="loginPhone" style="--fw:280px;" type="text" name="username" autocomplete="username" placeholder="مثال: 1" data-on-keydown="#108">
-      <label>كلمة المرور</label>
-      <input id="loginPassword" style="--fw:280px;" type="password" name="password" autocomplete="current-password" placeholder="••••••••" data-on-keydown="#109">
-      <label style="display:flex;align-items:center;gap:8px;margin-top:12px;">
-        <input id="rememberMeCheck" type="checkbox" style="width:auto;">
-        تذكرني (تسجيل دخول تلقائي حتى بعد إغلاق المتصفح)
-      </label>
-      <div class="actions-row">
-        <button class="btn btn-primary btn-md" data-on-click="attemptLogin">دخول</button>
+    <div class="login-split">
+      <div class="login-brand">
+        ${systemLogo() ? `<img class="lh-logo" src="${escH(systemLogo())}" alt="">` : ''}
+        <div class="lh-name">${escH(systemName())}</div>
+        ${systemTagline(1) ? `<div class="lh-tag">${escH(systemTagline(1))}</div>` : ''}
+        ${pts.length ? `<ul class="lh-pts">${pts.map((t,i)=>`<li>${qi(ico[i%ico.length])}<span>${escH(t)}</span></li>`).join('')}</ul>` : ''}
+        ${tail ? `<div class="lh-tail">${escH(tail)}</div>` : ''}
       </div>
-      <div style="margin-top:10px;">
-        <a href="#" data-on-click="#110"
-           style="font-size:12.5px;color:var(--blue);text-decoration:underline;cursor:pointer;">نسيت كلمة المرور؟</a>
+      <div class="login-form">
+        <div class="card login-card">
+          <h1>تسجيل الدخول</h1>
+          <label>رقم الهاتف</label>
+          <input id="loginPhone" type="text" name="username" autocomplete="username" placeholder="مثال: 1" data-on-keydown="#108">
+          <label>كلمة المرور</label>
+          <input id="loginPassword" type="password" name="password" autocomplete="current-password" placeholder="••••••••" data-on-keydown="#109">
+          <label style="display:flex;align-items:center;gap:8px;margin-top:12px;font-weight:600;">
+            <input id="rememberMeCheck" type="checkbox" style="width:auto;">
+            تذكرني على هذا الجهاز
+          </label>
+          <div class="actions-row">
+            <button class="btn btn-primary btn-md" style="width:100%;" data-on-click="attemptLogin">دخول</button>
+          </div>
+          <div style="margin-top:10px;text-align:center;">
+            <a href="#" data-on-click="#110" style="font-size:13px;color:var(--blue);text-decoration:underline;cursor:pointer;">نسيت كلمة المرور؟</a>
+          </div>
+          ${devSwitcherHtml()}
+        </div>
       </div>
-      ${devSwitcherHtml()}
-      <p class="file-hint" style="margin-top:10px;color:var(--blue);">نسخة الملف: 2026-10-22 — مصادقة Supabase</p>
     </div>
   `;
 }
