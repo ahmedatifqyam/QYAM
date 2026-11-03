@@ -289,7 +289,7 @@ const TAIL_FLOW = ['pending_transfer_request','pending_transfer_approval','pendi
 const STEP_LABELS = {
   pending_decision:'قيد اعتماد القرار', pending_transfer_request:'طلب التحويل (المحاسب)',
   pending_transfer_approval:'اعتماد التحويل (المدير المالي)', pending_disbursement:'إتمام الصرف (المحاسب)', completed:'تم الصرف',
-  custody_receipt:'تأكيد استلام العهدة', custody_close:'إقفال العهدة'
+  custody_receipt:'تأكيد استلام العهدة', custody_close:'إقفال العهدة', created:'إنشاء'
 };
 const STATUS_ROLE_MAP = {
   pending_transfer_request:'accountant', pending_transfer_approval:'cfo', pending_disbursement:'accountant',
@@ -7155,7 +7155,7 @@ function renderPathCheckPage(app){
       <div style="font-size:13px;margin-bottom:6px;">${escH(x.why)}</div>
       <div style="font-size:12.5px;"><b>المحفوظ في الطلب:</b> ${savedTxt}</div>
       <div style="font-size:12.5px;"><b>مسار الشركة الآن:</b> ${x.nowNames.length ? x.nowNames.map(escH).join(' ← ') : '—'}</div>
-      <div class="actions-row" style="margin-top:8px;" data-on-click="#67">
+      <div class="actions-row pc-actions" style="margin-top:8px;" data-on-click="#67">
         <button class="btn btn-ghost btn-xs" data-on-click="openRequest" data-on-click-args="${qa([(''+(x.r.id))])}">فتح الطلب</button>
         ${x.st==='ok' ? '' : `<button class="btn btn-ghost btn-xs" data-on-click="pathCheckRebuild" data-on-click-args="${qa([(''+(x.r.id))])}">${x.st==='skip'?'إعادة إلى القرار':'إعادة بناء المسار'}</button>`}
       </div></div>`;
