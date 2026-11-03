@@ -12811,7 +12811,7 @@ function renderDashboard(app){
     return sortDir==='asc' ? cmp : -cmp;
   });
 
-  function sortArrow(col){ return sortCol===col ? (sortDir==='asc' ? ' ▲' : ' ▼') : ''; }
+  function sortArrow(col){ return sortCol===col ? `<i class="sort-ar">${sortDir==='asc' ? '▲' : '▼'}</i>` : ''; }
 
   if(displayList.length===0){
     listHtml = `<div class="empty">لا توجد طلبات ضمن هذا الاختيار</div>`;
