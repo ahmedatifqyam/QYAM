@@ -1460,6 +1460,15 @@
   .amount-table-bene tbody tr > td:nth-child(6){font-size:12.5px !important;font-weight:800;}
   .amount-table-bene tbody tr > td:nth-child(6) .amt-number{width:78px;}
   @media print{ .amount-table-bene tbody tr > td:nth-child(6){font-size:12.5px !important;} .amount-table td.num{font-weight:500;} }
+
+  /* صفحة الطلبات: شبكة أزرار بعرض ثابت (٤ في الصف عند عرض ٨٢٠) تصعد للأعلى كلما اتسع العرض، وبطاقة ملخص بعرض ثلاثة أزرار */
+  #app .dash-grid{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 8px;align-items:center;}
+  #app .dash-grid .fb, #app .dash-sumrow .dash-own-sel{width:188px;flex:0 0 188px;min-width:0;}
+  .dash-sumrow{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px;align-items:center;}
+  .dash-sumcard{height:40px;line-height:38px;box-sizing:border-box;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:#fff;border:1px solid var(--line);border-radius:6px;padding:0 12px;font-size:13.5px;color:var(--text);flex:1 1 100%;min-width:0;}
+  .dash-sumcard b{color:var(--ink);font-weight:800;} .dash-sumcard .ds-sep{color:var(--muted);margin:0 4px;}
+  .dash-sumrow.has-owner .dash-sumcard{flex:0 0 580px;max-width:100%;}
+  @media (max-width:640px){ #app .dash-grid .fb, #app .dash-sumrow .dash-own-sel{width:calc(50% - 4px);flex:0 0 calc(50% - 4px);} .dash-sumcard{white-space:normal;height:auto;min-height:40px;padding:6px 10px;line-height:1.6;} .dash-sumrow.has-owner .dash-sumcard{flex:1 1 100%;} #app .dash-sumrow .dash-own-sel{width:100%;flex:1 1 100%;} }
 </style>
 </head>
 <body>
@@ -1480,6 +1489,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.0.3/qrcode.min.js"></script>
-<script src="app.js?v=6f0f876ca8"></script>
+<script src="app.js?v=a4d5478888"></script>
 </body>
 </html>

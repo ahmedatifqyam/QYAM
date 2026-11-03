@@ -5683,9 +5683,9 @@ function fitFilterButtons(){
   if(w>0) app.style.setProperty('--fbw', w+'px');
 }
 function dashAll(){ state.dashOwner = 'all'; state.dashStatusFilter = 'all'; render(); }
-function dashToggleMine(){ state.dashOwner = (state.dashOwner==='mine') ? 'all' : 'mine'; if(state.dashOwner==='mine' && state.dashStatusFilter==='mypending') state.dashStatusFilter = 'all'; render(); }   // «بانتظار قرارك» و«طلباتي» لا يجتمعان: اختيار أحدهما يلغي الآخر فيعود الوميض
-function dashToggleCat(k){ state.dashStatusFilter = (state.dashStatusFilter===k) ? 'all' : k; render(); }
-function dashPickOwner(v){ state.dashOwner = v || 'all'; render(); }
+function dashToggleMine(){ state.dashOwner = (state.dashOwner==='mine') ? 'all' : 'mine'; state.dashStatusFilter = 'all'; render(); }   // كل زر يعمل وحده: اختياره يلغي غيره، وإطفاؤه يعيد «الكل»
+function dashToggleCat(k){ state.dashStatusFilter = (state.dashStatusFilter===k) ? 'all' : k; state.dashOwner = 'all'; render(); }
+function dashPickOwner(v){ state.dashOwner = v || 'all'; state.dashStatusFilter = 'all'; render(); }
 function statusLegendHtml_unused(){
   return `<div class="status-legend no-print">${['review','decision','finance','done','rejected','cancelled','handed'].map(k=>`<span><i style="background:${REQ_CAT[k].c};"></i>${REQ_CAT[k].label}</span>`).join('')}</div>`;
 }
@@ -12729,11 +12729,11 @@ function renderDashboard(app){
   const ownerSel = state.dashOwner || 'all';
   if(ownerSel==='mine') visibleRequests = visibleRequests.filter(r=>r.createdById===myId);
   else if(ownerSel!=='all') visibleRequests = visibleRequests.filter(r=>r.createdById===ownerSel);
-  const ownerFilterHtml = role!=='admin' ? '' : `<div class="dash-status"><label>طلبات موظف</label>
+  const ownerFilterHtml = role!=='admin' ? '' : `<label class="fb fb-sel dash-own-sel"><span class="fb-ic" style="color:#475569;">${qi('me')}</span>
     <select data-on-change="dashPickOwner" data-on-change-args="${qa([QA.v])}">
-      <option value="all" ${(ownerSel==='all'||ownerSel==='mine')?'selected':''}>— اختر الموظف —</option>
+      <option value="all" ${(ownerSel==='all'||ownerSel==='mine')?'selected':''}>طلبات موظف…</option>
       ${role==='admin' ? ownerCandidates.filter(o=>o.id!==myId).sort((a,b)=>String(a.name).localeCompare(String(b.name),'ar')).map(o=>`<option value="${escH(o.id)}" ${ownerSel===o.id?'selected':''}>${escH(o.name)}</option>`).join('') : ''}
-    </select></div>`;
+    </select></label>`;
 
   const myPendingCount = getMyPendingRequests().length;
   const pendingBadge = myPendingCount>0
@@ -12881,9 +12881,17 @@ function renderDashboard(app){
 
   // الفترة زرّ كبقية الأزرار: رمز التقويم ونص الاختيار يغنيان عن عنوان «الفترة» فوقه
   const selBtn = (ico, inner) => `<label class="fb fb-sel"><span class="fb-ic" style="color:#0f766e;">${qi(ico)}</span>${inner}</label>`;
+  // شبكة واحدة بأزرار ثابتة العرض تصعد للأعلى كلما اتسع العرض: الكل · طلباتي · بانتظار قرارك · الحالات · ثم الفترة في آخرها
+  // كل زر يعمل وحده بالتبادل (وإطفاؤه يعيد «الكل»)، والفترة وحدها تجتمع معها
+  const statusBtns = ['review','decision','finance','done','rejected','cancelled','handed'].map(k=>fbtn(k, REQ_CAT[k].label,
+        k==='handed' ? periodFiltered.filter(r=>handedFromNames(r).length>0).length : periodFiltered.filter(r=>reqCat(r)===k).length,
+        statusFilter===k || (k==='done' && statusFilter==='completed'), [["dashToggleCat",[k]]])).join('');
   const periodBar = `
-    <div class="dash-filt no-print">
-      <div class="dash-filt-right">
+    <div class="dash-grid no-print">
+        ${fbtn('', 'الكل', visAllOwners.filter(inPeriod).length, ownerSel==='all' && statusFilter==='all', [["dashAll",[]]], false, 'all')}
+        ${fbtn('', 'طلباتي', visAllOwners.filter(r=>r.createdById===myId && inPeriod(r)).length, ownerSel==='mine', [["dashToggleMine",[]]], false, 'me')}
+        ${fbtn('', 'بانتظار قرارك', myPendingCount, statusFilter==='mypending', [["dashToggleCat",["mypending"]]], myPendingCount>0 && statusFilter!=='mypending', 'alarm', '#d97706')}
+        ${statusBtns}
         ${selBtn('cal', `<select data-on-change="#117" aria-label="الفترة" title="الفترة">
             <option value="all" ${periodMode==='all'?'selected':''}>كل الفترات</option>
             <option value="week" ${periodMode==='week'?'selected':''}>الأسبوع الحالي</option>
@@ -12897,22 +12905,11 @@ function renderDashboard(app){
         ${periodMode==='month' ? selBtn('cal', `<select data-on-change="#115" aria-label="الشهر" title="الشهر">
             ${monthNames.map((m,i)=>`<option value="${i+1}" ${(i+1)==periodMonth?'selected':''}>شهر ${m}</option>`).join('')}
           </select>`) : ''}
-      </div>
-      <div class="dash-filt-own">
-        ${fbtn('', 'الكل', visAllOwners.filter(inPeriod).length, ownerSel==='all' && statusFilter==='all', [["dashAll",[]]], false, 'all')}
-        ${fbtn('', 'طلباتي', visAllOwners.filter(r=>r.createdById===myId && inPeriod(r)).length, ownerSel==='mine', [["dashToggleMine",[]]], false, 'me')}
-        ${(myPendingCount || role!=='employee') ? fbtn('', 'بانتظار قرارك', myPendingCount, statusFilter==='mypending', [["dashToggleCat",["mypending"]]], myPendingCount>0 && statusFilter!=='mypending', 'alarm', '#d97706') : ''}
-      </div>
-          </div>
-    <div class="fbar no-print">${['review','decision','finance','done','rejected','cancelled','handed'].map(k=>fbtn(k, REQ_CAT[k].label,
-        k==='handed' ? periodFiltered.filter(r=>handedFromNames(r).length>0).length : periodFiltered.filter(r=>reqCat(r)===k).length,
-        statusFilter===k || (k==='done' && statusFilter==='completed'), [["dashToggleCat",[k]]])).join('')}</div>
-    ${(()=>{ // سطر المجموع: يتبع كل اختيار (الفترة، طلباتي، اللون)
+    </div>
+    ${(()=>{ // بطاقة ملخص واحدة بارتفاع الزر، وبجوارها «طلبات موظف…» للمدير؛ وإن غابت امتدت البطاقة لتملأ الصف
       const n = displayList.length, sum = displayList.reduce((a,r)=>a+Number(r.totalAmount||0),0);
-      const paid = displayList.filter(r=>r.status==='completed' && !r.isCancelled).reduce((a,r)=>a+Number(r.totalAmount||0),0);
-      // ثلاث قيم متجاورة، عنوان كل قيمة فوقها: أوضح في القراءة من جملة واحدة طويلة
-      const tile = (l, v) => `<div class="ds-item"><div class="ds-l">${l}</div><div class="ds-v">${v}</div></div>`;
-      return `<div class="dash-sum no-print">${tile('عدد الطلبات', n.toLocaleString('en'))}${tile('إجمالي المبالغ', fmtKWDHtml(sum)+' <span class="ds-u">د.ك</span>')}${tile('تم صرفه', fmtKWDHtml(paid)+' <span class="ds-u">د.ك</span>')}${ownerFilterHtml}</div>`; })()}
+      const paidList = displayList.filter(r=>r.status==='completed' && !r.isCancelled), paid = paidList.reduce((a,r)=>a+Number(r.totalAmount||0),0);
+      return `<div class="dash-sumrow no-print${ownerFilterHtml ? ' has-owner' : ''}"><div class="dash-sumcard">يعرض <b>${n.toLocaleString('en')}</b> ${n===1?'طلباً':'طلباً'} بإجمالي <b>${fmtKWDHtml(sum)}</b> د.ك <span class="ds-sep">·</span> صُرف منها <b>${paidList.length.toLocaleString('en')}</b> بقيمة <b>${fmtKWDHtml(paid)}</b> د.ك</div>${ownerFilterHtml}</div>`; })()}
   `;
 
   const statCards = `
