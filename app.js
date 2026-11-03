@@ -954,7 +954,8 @@ function syncPageTitleInner(){
   document.querySelectorAll('h1[data-top]').forEach(h=>h.removeAttribute('data-top'));
   const tb = document.getElementById('tbPage'), app = document.getElementById('app');
   if(!tb || !app) return;
-  if(!state.user || ['detail','printPreview','login'].includes(state.view)){ tb.textContent=''; return; }
+  if(state.user && state.view==='detail'){ tb.textContent='تفاصيل الطلب'; return; }
+  if(!state.user || ['printPreview','login'].includes(state.view)){ tb.textContent=''; return; }
   const h = app.querySelector('.adm-head h1') || app.querySelector('h1');
   if(!h){ tb.textContent=''; return; }
   const title = h.textContent.replace(/\s+/g,' ').trim();
