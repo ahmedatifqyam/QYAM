@@ -1652,7 +1652,7 @@ function secVisibleRows(){
   return rows;
 }
 function secUserName(id){ if(!id) return '—'; const u = (state.users||[]).find(x=>x.id===id); return u ? u.name : id; }
-function secWhen(t){ try{ return new Date(t).toLocaleString('ar-KW',{dateStyle:'short', timeStyle:'short'}); }catch(e){ return t||''; } }
+function secWhen(t){ try{ return new Date(t).toLocaleString('en-GB',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:true}).replace(',',' ·').replace(/\bam\b/i,'ص').replace(/\bpm\b/i,'م'); }catch(e){ return t||''; } }
 function renderSecurityLog(app){
   const L = state.secLog, tab = state.secTab || 'alerts';
   if(!L && !state._secLoading){ state._secLoading = true; setTimeout(()=>{ state._secLoading = false; loadSecurityLog(); }, 0); }
@@ -8839,7 +8839,7 @@ function renderAdmin(app){
 const BUDGET_TYPE_LABELS = {
   company:'الشركة', center:'مركز', club:'نادي/وحدة', project:'مشروع',
   department:'إدارة', program:'برنامج', trip:'رحلة',
-  entity:'جهة', client:'عميل'
+  entity:'جهة', client:'عميل', general:'عام'
 };
 const BUDGET_TYPE_ICONS = {
   company:'🏢', center:'🏛️', club:'⚽', project:'📋',
