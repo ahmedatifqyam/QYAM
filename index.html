@@ -185,14 +185,15 @@
   /* أزرار فلتر الطلبات: مربّع اللون والاسم والعدد، حد أيمن (بلون الحالة) وحد أسفل وظل خفيف، ارتفاع ٣٠ (استثناء مقصود من قاعدة ٤٠) وعرض واحد ثابت يُقاس على أطول زر */
   .dash-filt{justify-content:flex-start;}
   .dash-filt-left{margin-right:auto;}
+  .dash-filt-left:empty{display:none;}
   .dash-filt-own{display:flex;gap:6px;align-items:flex-end;}
   .fbar{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 12px;}
-  .fb{height:30px;width:var(--fbw,auto);box-sizing:border-box;display:inline-flex;align-items:flex-end;gap:7px;padding:0 10px 4px;line-height:1.2;
+  .fb{height:40px;width:var(--fbw,auto);box-sizing:border-box;display:inline-flex;align-items:center;gap:8px;padding:0 10px;line-height:1.2;
     background:#fff;border:0;border-right:5px solid var(--ink);border-bottom:2px solid #CFCBBE;border-radius:6px;box-shadow:0 1px 3px rgba(0,0,0,.10);
-    font-family:inherit;font-size:14px;color:var(--ink);font-weight:700;white-space:nowrap;cursor:pointer;flex:0 0 auto;}
+    font-family:inherit;font-size:14.5px;color:var(--ink);font-weight:700;white-space:nowrap;cursor:pointer;flex:0 0 auto;}
   /* رمز الحالة أبيض داخل مربّع صغير بلونها؛ والحد الأيمن العريض باللون نفسه */
-  .fb .fb-bx{width:20px;height:20px;border-radius:6px;background:var(--ink);color:#fff;display:inline-flex;align-items:center;justify-content:center;flex:0 0 20px;margin-bottom:-1px;}
-  .fb .fb-bx .qi{width:14px;height:14px;stroke-width:2.3;}
+  .fb .fb-bx{width:24px;height:24px;border-radius:7px;background:var(--ink);color:#fff;display:inline-flex;align-items:center;justify-content:center;flex:0 0 24px;}
+  .fb .fb-bx .qi{width:16px;height:16px;stroke-width:2.3;}
   .fb.fb-neu.on .fb-bx{background:#fff;color:var(--ink);}
   .fb:disabled .fb-bx{filter:grayscale(.35);}
   .fb .fb-n{margin-right:auto;font-weight:800;color:var(--ink);font-size:14.5px;}
@@ -446,9 +447,9 @@
   }
   @media (max-width:640px){ .tb-page{display:none;} }
   @media print{ h1[data-top]{display:block !important;} .tb-page{display:none;} }
-  .dash-filt{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;margin:6px 0 12px;flex-wrap:nowrap;}
-  .dash-filt-right,.dash-filt-left{display:flex;align-items:flex-end;gap:12px;flex-wrap:nowrap;min-width:0;}
-  .dash-filt-right > div{width:150px;}
+  .dash-filt{display:flex;justify-content:flex-start;align-items:flex-end;gap:6px;margin:6px 0 6px;flex-wrap:wrap;}
+  .dash-filt-right,.dash-filt-left{display:flex;align-items:flex-end;gap:6px;flex-wrap:nowrap;min-width:0;}
+  .dash-filt-right > div{width:var(--fbw,150px);}
   .dash-status{width:240px;}
   .dash-filt select{width:100%;}
   @media (max-width:640px){ .dash-filt{flex-wrap:wrap;} .dash-filt-right,.dash-filt-left{width:100%;} .dash-filt-right > div{flex:1 1 0;width:auto;min-width:0;} .dash-status{flex:1 1 0;width:auto;min-width:0;} }
