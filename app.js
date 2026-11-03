@@ -300,6 +300,18 @@ const STATUS_ROLE_MAP = {
 const OLD_DECISION_STATUSES = ['pending_manager','pending_senior','pending_executive'];
 // يبني مسار القرار الصاعد لصاحب الطلب (نفس منطق معاينة المسار بالهيكل التنظيمي بالضبط)
 // صف خطوة اعتماد من القاعدة إلى شكل الواجهة
+// حالة الطلب بعد بناء مساره في الخادم: كل خطواته معتمدة (اعتماد بالإنشاء لمن في أعلى السلسلة) أو بلا خطوات = عند المحاسب
+function statusForSteps(steps){ const s = steps||[]; return (!s.length || s.every(x=>x.status==='approved')) ? 'pending_transfer_request' : 'pending_decision'; }
+function isSelfApproved(req){ return !!req && (req.approvalSteps||[]).some(s=>s.approverId===req.createdById && s.status==='approved'); }
+// بعد qy_set_chain: إن سجّل الخادم «اعتمد بإنشائه الطلب» يُضاف السطر نفسه للسجل المحلي فيظهر فوراً في المسار والورقة
+function noteSelfApproval(req){
+  if(!isSelfApproved(req)) return;
+  const H = req.history = req.history || [];
+  const last = H[H.length-1];
+  if(last && last.action==='اعتماد' && last.userId===req.createdById) return;
+  const cu = userById(req.createdById);
+  H.push({step:'pending_decision', actor:(cu && cu.name) || req.createdBy || '', userId:req.createdById, action:'اعتماد', note:'بإنشائه الطلب — في أعلى السلسلة', time:fmtDate(), createdAt:new Date().toISOString()});
+}
 function mapStepRow(s){
   return {id:s.id, approverId:s.approver_id, sequenceOrder:s.sequence_order, roleLabel:s.role_label, status:s.status, actedAt:s.acted_at||null, note:s.note||'',
           kind:s.kind||'primary', escalatedFrom:s.escalated_from||null, activatedAt:s.activated_at||null};
@@ -313,8 +325,17 @@ function applyFastTrack(creatorUser, total, chain){
   if(c.skipSeniorManager) skip.add('senior_manager');
   if(c.skipExecutiveManager) skip.add('executive_manager');
   if(!skip.size) return {chain, fast:false};
-  const f = chain.filter(s=>{ const u = state.users.find(x=>x.id===s.approverId); return !u || !skip.has(u.role); });
-  return f.length!==chain.length ? {chain:f, fast:true} : {chain, fast:false};
+  let f = chain.filter(s=>{ const u = state.users.find(x=>x.id===s.approverId); return !u || !skip.has(u.role); });
+  if(f.length===chain.length) return {chain, fast:false};
+  if(!f.length) f = [keepOneApprover(c, chain)];   // لا يخلو المسار بالتخطّي: يبقى معتمِد واحد حسب إعداد المركز
+  return {chain:f, fast:true};
+}
+// المعتمِد الوحيد الباقي إذا حذف تخطّي المبالغ الصغيرة كل المعتمدين: المدير التنفيذي (الافتراضي) أو المدير المباشر أو المدير العام
+function keepOneApprover(center, chain){
+  const mode = (center && center.minSingleApprover) || 'exec';
+  const role = mode==='exec' ? 'executive_manager' : mode==='senior' ? 'senior_manager' : '';
+  const hit = role ? chain.find(s=>{ const u = state.users.find(x=>x.id===s.approverId); return u && u.role===role; }) : null;
+  return hit || chain[0];
 }
 // المسار الرسمي يبنيه الخادم (qy_set_chain). هذه الدالة للمعاينة والرسائل فقط، وتطابق دالة الخادم qy_decision_chain
 function buildDecisionChain(requester, companyId){
@@ -521,6 +542,7 @@ function dbCenterToState(c){
     id:c.id, name:c.name, letterheadData:c.letterhead_data||'', companyId:c.company_id, code:c.code||'', footerMode:c.footer_mode||'company', footerText:c.footer_text||'',
     annualBudget:c.annual_budget, monthlyBudget:c.monthly_budget, minThreshold:c.min_threshold,
     skipDeptManager: !!c.skip_dept_manager, skipSeniorManager: !!c.skip_senior_manager, skipExecutiveManager: !!c.skip_executive_manager,
+    minSingleApprover: c.min_single_approver || 'exec', hasMinSingle: c.min_single_approver!==undefined,
     maxRequestAmount:c.max_request_amount, maxBeneficiaryAmount:c.max_beneficiary_amount,
     requireBankTransferRef: c.require_bank_transfer_ref!==false,
     kind: c.kind||'center', scope: c.scope||'company', parentId: c.parent_id||null
@@ -785,7 +807,7 @@ async function refreshNow(manual){
     }
     if(fresh.length===1){
       const i = fresh[0];
-      showToast(i.kind==='recurring' ? i.title.replace('🔁 ','')+': '+i.sub :  i.kind==='pending' ? 'وصلك طلب جديد بانتظار اعتمادك' : i.kind==='path_reset' ? 'أُعيد مسار طلب — يحتاج اعتمادك: '+i.number : (i.kind==='handover' || i.kind==='handover_res') ? i.title : i.kind==='rejected' ? 'رُفض طلبك '+i.number : i.kind==='paid' ? 'تم صرف طلبك '+i.number : (i.kind==='structure' || i.kind==='reset') ? i.title : 'تم اعتماد طلبك '+i.number, (i.kind==='rejected' || i.kind==='structure') ? 'error' : (i.kind==='path_reset' ? 'warn' : 'success'));
+      showToast(i.kind==='recurring' ? i.title.replace('🔁 ','')+': '+i.sub :  i.kind==='pending' ? 'وصلك طلب جديد بانتظار اعتمادك' : i.kind==='custody_receipt' ? 'صُرفت لك عهدة — افتحها وأكّد استلامها' : i.kind==='path_reset' ? 'أُعيد مسار طلب — يحتاج اعتمادك: '+i.number : (i.kind==='handover' || i.kind==='handover_res') ? i.title : i.kind==='rejected' ? 'رُفض طلبك '+i.number : i.kind==='paid' ? 'تم صرف طلبك '+i.number : (i.kind==='structure' || i.kind==='reset') ? i.title : 'تم اعتماد طلبك '+i.number, (i.kind==='rejected' || i.kind==='structure') ? 'error' : (i.kind==='path_reset' ? 'warn' : 'success'));
     } else if(fresh.length>1){ showToast('وصلك '+fresh.length+' إشعارات جديدة', 'success'); }
     if(fresh.length) playNotifSound();
     if(changed) state._viewStale = true;
@@ -1080,6 +1102,15 @@ function computeNotifications(){
     items.push({key:'p:'+r.id, kind:'pending', reqId:r.id, number:r.number, ts, isNew:(ts>seen || isFreshKey('p:'+r.id)), overdue:isOverdueFor(r, me),
       title:'طلب بانتظار اعتمادك', sub:r.number+' — '+r.reason+' — '+fmtKWDPlain(r.totalAmount)+' — من '+r.createdBy});
   });
+  // عهدة صُرفت لك بانتظار تأكيد استلامك: إجراء مطلوب منك (يُعدّ مع ما ينتظرك، ويُفتح على صفحة العهدة)
+  if(state.custodyReady) custodyAwaitingMine().forEach(k=>{
+    const r = state.requests.find(x=>x.id===k.requestId);
+    const paid = r ? (r.history||[]).slice().reverse().find(h=>h.action==='تم الصرف') : null;
+    const ts = paid ? tsOf(paid.createdAt) : tsOf(k.createdAt), key = 'cr:'+k.id;
+    const days = (state.companies.find(c=>c.id===k.companyId)||{}).custodyReceiptDays || 3;
+    items.push({key, kind:'custody_receipt', reqId:String(k.id), number:r ? r.number : '', ts, isNew:(ts>seen || isFreshKey(key)), overdue:(ts>0 && Date.now()-ts > days*86400000),
+      title:'صُرفت لك عهدة — أكّد استلامها', sub:((r && r.number) || '')+' — '+(k.purpose || (r && r.reason) || '')+' — '+fmtKWDPlain(k.amount)});
+  });
   const horizon = Date.now() - 30*86400000;
   state.requests.filter(r=>r.companyId===state.currentCompanyId && r.createdById===me && !r.isCancelled).forEach(r=>{
     let last = null;
@@ -1150,13 +1181,14 @@ function computeNotifications(){
   });
   items.push(...computeAdminStructureItems());
   items.push(...computeRecurringItems());
-  items.sort((a,b)=> (a.kind==='pending'?0:1)-(b.kind==='pending'?0:1) || (b.overdue-a.overdue) || (b.ts-a.ts));
-  const pendingCount = items.filter(i=>i.kind==='pending' || i.kind==='path_reset' || i.kind==='handover').length;
-  const unreadEvents = items.filter(i=>i.kind!=='pending' && i.kind!=='path_reset' && i.kind!=='handover' && i.kind!=='structure' && i.kind!=='reset' && i.kind!=='recurring' && i.isNew).length;
+  const actKind = k => k==='pending' || k==='custody_receipt';
+  items.sort((a,b)=> (actKind(a.kind)?0:1)-(actKind(b.kind)?0:1) || (b.overdue-a.overdue) || (b.ts-a.ts));
+  const pendingCount = items.filter(i=>i.kind==='pending' || i.kind==='custody_receipt' || i.kind==='path_reset' || i.kind==='handover').length;
+  const unreadEvents = items.filter(i=>i.kind!=='pending' && i.kind!=='custody_receipt' && i.kind!=='path_reset' && i.kind!=='handover' && i.kind!=='structure' && i.kind!=='reset' && i.kind!=='recurring' && i.isNew).length;
   const recurringCount = items.filter(i=>i.kind==='recurring').length;
   const recurringNew = items.filter(i=>i.kind==='recurring' && i.isNew).length;
   const structureIssues = items.filter(i=>i.kind==='structure' || i.kind==='reset').length;
-  const newPending = items.filter(i=>(i.kind==='pending'||i.kind==='path_reset'||i.kind==='handover') && i.isNew).length;
+  const newPending = items.filter(i=>(i.kind==='pending'||i.kind==='custody_receipt'||i.kind==='path_reset'||i.kind==='handover') && i.isNew).length;
   return {items:items.slice(0,40), pendingCount, unreadEvents, newPending, structureIssues, recurringCount, unread:unreadEvents+newPending+structureIssues+recurringNew, badge:pendingCount+unreadEvents+structureIssues+recurringCount};
 }
 function updateBellBadge(n){
@@ -1185,7 +1217,7 @@ function renderBellPanel(){
   if(!p) return;
   if(!state.bellOpen || !state.user){ p.classList.remove('open'); p.innerHTML=''; return; }
   const n = computeNotifications();
-  const icon = {pending:'📝', approved:'✅', rejected:'❌', paid:'💰', structure:'🧩', path_reset:'⟳', reset:'🔑', recurring:'🔁', iban:'🏦', handover:'🤝', handover_res:'🤝'};
+  const icon = {pending:'📝', custody_receipt:'💼', approved:'✅', rejected:'❌', paid:'💰', structure:'🧩', path_reset:'⟳', reset:'🔑', recurring:'🔁', iban:'🏦', handover:'🤝', handover_res:'🤝'};
   // «إخفاء المقروء»: اختيار محفوظ لكل مستخدم. يُخفي كل مقروء؛ وما ينتظر إجراءك يبقى في «ما ينتظرني» وعدّاد الجرس
   const hideRead = bellHideRead();
   const shown = hideRead ? n.items.filter(i=>i.isNew) : n.items;
@@ -1283,6 +1315,7 @@ function markAllSeen(){
 }
 function openNotifItem(id, kind){
   state.bellOpen = false;
+  if(kind==='custody_receipt'){ renderBellPanel(); openCustody(Number(id)); return; }
   if(kind==='handover' || kind==='handover_res'){ persistNotifSeen(latestServerTs()); renderBellPanel(); openHandovers(); return; }
   if(kind==='recurring'){
     markRecurringSeen(computeRecurringItems().map(i=>i.key));
@@ -4192,14 +4225,15 @@ async function createNewRequest(o){
     if(creatorCenter.skipSeniorManager) skipRoles.add('senior_manager');
     if(creatorCenter.skipExecutiveManager) skipRoles.add('executive_manager');
     if(skipRoles.size){
-      const filtered = chain.filter(s=>{ const u=state.users.find(x=>x.id===s.approverId); return !u || !skipRoles.has(u.role); });
-      if(filtered.length !== chain.length){ isFastTracked = true; chain = filtered; }
+      let filtered = chain.filter(s=>{ const u=state.users.find(x=>x.id===s.approverId); return !u || !skipRoles.has(u.role); });
+      if(filtered.length !== chain.length){ isFastTracked = true; if(!filtered.length) filtered = [keepOneApprover(creatorCenter, chain)]; chain = filtered; }
     }
   }
   const roleLabelFor = ()=>'pending_decision';
   chain = chain.map(s=>({roleLabel: roleLabelFor(), approverId: s.approverId}));
   if(isCustody){ isFastTracked = false; }
-  const initialStatus = (isCustody || chain.length>0) ? 'pending_decision' : 'pending_transfer_request';
+  // كل طلب يبدأ «قيد القرار»، والخادم يبني مساره: لمن في أعلى السلسلة يُسجَّل إنشاؤه اعتماداً له وينتقل الطلب للمالية
+  const initialStatus = 'pending_decision';
   // طلب بلا معتمدين لا يُرسل إلا لمن فُعّل له الانتقال المباشر، أو إن كان التخطي بسبب حد المبلغ الصغير للمركز
   if(!isCustody && chain.length===0 && !isFastTracked && !(creatorUser && creatorUser.directToTransfer)){
     showToast('لا يوجد معتمِد لطلبك، فلا يمكن إرساله بلا اعتماد. حدّد مديراً في حسابك أو اطلب من مدير النظام تفعيل «الانتقال المباشر إلى التحويل».', 'error');
@@ -4271,6 +4305,9 @@ async function createNewRequest(o){
   });
   if(!(await dbCheck(reqInsert, 'إنشاء الطلب'))) return false;
   if(isCustody) req.requestType = 'custody';
+  // سجل الإنشاء أولاً، فيأتي قبل «اعتمد بإنشائه الطلب» إن سجّله الخادم
+  const h0 = req.history[0];
+  await dbCheck(await db.from('request_history').insert({request_id:req.id, step:h0.step, actor:h0.actor, user_id:h0.userId, action:h0.action, note:h0.note, time:h0.time}), 'حفظ سجل الإنشاء');
   // العهدة: صفّها يُكتب فور الطلب، فيرفض الخادم مبكراً من بلغ الحد الأقصى، ويُحذف الطلب معه
   if(o.afterInsert && !(await o.afterInsert(req))){ await db.from('requests').delete().eq('id', req.id); return false; }
   // مسار الاعتماد يبنيه الخادم من الهيكل التنظيمي (qy_set_chain)؛ المتصفح لا يضيف خطوات المسار
@@ -4278,8 +4315,8 @@ async function createNewRequest(o){
     const chainRes = await db.rpc('qy_set_chain', {p_req: req.id, p_reset: false});
     if(!(await dbCheck(chainRes, 'بناء مسار الاعتماد'))){ await db.from('requests').delete().eq('id', req.id); return false; }
     req.approvalSteps = (chainRes.data||[]).map(mapStepRow);
-    // عهدة بلا معتمدين (إعداد «إلى المالية مباشرة»، أو لا أحد فوق صاحبها): نقلها الخادم إلى المحاسب
-    if(isCustody && !req.approvalSteps.length) req.status = 'pending_transfer_request';
+    // المنشئ في أعلى السلسلة: سجّل الخادم إنشاءه اعتماداً له ونقل الطلب إلى المحاسب
+    if(isSelfApproved(req)){ req.status = 'pending_transfer_request'; noteSelfApproval(req); }
     else if(!req.approvalSteps.length){
       await db.from('requests').delete().eq('id', req.id);
       showToast('تعذّر بناء مسار الاعتماد في الخادم — حدّث الصفحة وحاول مرة أخرى، أو راجع مدير النظام', 'error');
@@ -4297,8 +4334,6 @@ async function createNewRequest(o){
     await db.from('requests').delete().eq('id', req.id);
     return false;
   }
-  const h0 = req.history[0];
-  await dbCheck(await db.from('request_history').insert({request_id:req.id, step:h0.step, actor:h0.actor, user_id:h0.userId, action:h0.action, note:h0.note, time:h0.time}), 'حفظ سجل الإنشاء');
   req.requestNotes = requestNotes;
   if(identityDiffs.length) await pushHistory(req, {step:req.status, actor:state.user.name, userId:state.user.id, action:'تنبيه آيبان', note:identityDiffs.map(x=>x.name).join('، ')+' — يختلف عن المسجّل، محفوظ لهذا الطلب فقط', time:fmtDate()});
   loadBudgetSums();
@@ -4332,7 +4367,7 @@ async function applyRequestEdit(o){
   const {reasonInput, detailedReasonInput, budgetItemId, beneficiaries, beneRows, total, requestNotes, identityDiffs} = o;
   const req = state.requests.find(r=>r.id===o.reqId);
   if(!req) return false;
-  const newStatus = (req.approvalSteps||[]).length ? 'pending_decision' : 'pending_transfer_request';
+  const newStatus = statusForSteps(req.approvalSteps);
   const newLimitExceeded = checkLimitExceeded(req.centerId, total, beneficiaries);
   // ما الذي تغيّر فعلاً؟ يُحسب قبل تعديل الطلب، ليُكتب في السجلّ بدل «تعديل الطلب» المجرّدة
   const wasRecurring = !!req.isRecurring, nowRecurring = !!o.isRecurring;
@@ -4490,8 +4525,8 @@ async function rebuildChainIfUntouched(req){
   if(!isNewEngine) return false;   // طلبات المحرك القديم تحتفظ بخطواتها؛ لا إعادة بناء تلقائية لها
   const rr = await db.rpc('qy_set_chain', {p_req: req.id, p_reset: false});
   if(rr.error) return false;
-  req.approvalSteps = (rr.data||[]).map(mapStepRow);
-  const newStatus = req.approvalSteps.length ? 'pending_decision' : 'pending_transfer_request';
+  req.approvalSteps = (rr.data||[]).map(mapStepRow); noteSelfApproval(req);
+  const newStatus = statusForSteps(req.approvalSteps);
   const nmOf = id => (state.users.find(u=>u.id===id)||{}).name || id;
   const prevSig = currentChainSig ? currentChainSig.split(',').map(nmOf).join(' ← ') : 'لا أحد';
   const nextSig = req.approvalSteps.length ? req.approvalSteps.map(x=>nmOf(x.approverId)).join(' ← ') : 'لا أحد';
@@ -4751,9 +4786,9 @@ async function rebuildRequestPath(req){
   }
   const rr = await db.rpc('qy_set_chain', {p_req: req.id, p_reset: false});
   if(!(await dbCheck(rr, 'إعادة بناء مسار الاعتماد'))) return;
-  req.approvalSteps = (rr.data||[]).map(mapStepRow);
+  req.approvalSteps = (rr.data||[]).map(mapStepRow); noteSelfApproval(req);
   const stepRows = req.approvalSteps;
-  const newStatus = stepRows.length ? 'pending_decision' : 'pending_transfer_request';
+  const newStatus = statusForSteps(stepRows);
   if(newStatus !== req.status){
     await pushHistory(req, {step:req.status, actor: state.user.name, userId: state.user.id, action:'إعادة بناء مسار الاعتماد', note:'', time: fmtDate()});
     await setRequestStatus(req, newStatus);
@@ -4807,8 +4842,8 @@ async function rebuildRequestPathAndReset(req){
     });
   }
 
-  // تحديث الحالة للـ pending_decision
-  const newStatus = stepRows.length ? 'pending_decision' : 'pending_transfer_request';
+  // تحديث الحالة للـ pending_decision (أو للمحاسب إن كان المنشئ في أعلى السلسلة فاعتُمد بإنشائه)
+  const newStatus = statusForSteps(stepRows);
   await setRequestStatus(req, newStatus);
 
   showToast('تم إعادة بناء المسار — '+(prevApprovers.length ? 'أُرسل إشعار للمعتمدين السابقين' : 'لم يكن هناك اعتمادات سابقة'), 'success');
@@ -5534,7 +5569,8 @@ function renderRejectModal(){
 }
 
 async function resubmit(req){
-  const newStatus = (req.approvalSteps||[]).length ? 'pending_decision' : 'pending_transfer_request';
+  const selfBefore = isSelfApproved(req);
+  const newStatus = selfBefore ? 'pending_decision' : ((req.approvalSteps||[]).length ? 'pending_decision' : 'pending_transfer_request');
   const resEntry = {step: req.status, actor: state.user.name, userId: state.user.id, action:'إعادة إرسال الطلب بعد التعديل', note:'', time: fmtDate()};
   // الحالة أولاً (والخادم يُسقط الاعتمادات السابقة)، ثم السجل، ثم تنظيف الإحالات وبدء المهلة
   if(!(await setRequestStatus(req, newStatus))){ render(); return; }
@@ -5546,6 +5582,14 @@ async function resubmit(req){
     req.approvalSteps.forEach(s=>{ s.status='pending'; s.actedAt=null; s.activatedAt=null; });
     const first = currentDecisionGroup(req); const nowIso = new Date().toISOString();
     for(const o of first){ await db.from('request_approval_steps').update({activated_at:nowIso}).eq('id', o.id); o.activatedAt = nowIso; }
+  }
+  // كان معتمَداً بإنشائه (المنشئ في أعلى السلسلة): يعيد الخادم بناء مساره فيُسجَّل اعتماده بالإنشاء من جديد وينتقل للمحاسب
+  if(selfBefore){
+    const rr = await db.rpc('qy_set_chain', {p_req: req.id, p_reset: false});
+    if(await dbCheck(rr, 'إعادة بناء مسار الاعتماد')){
+      req.approvalSteps = (rr.data||[]).map(mapStepRow); noteSelfApproval(req);
+      req.status = statusForSteps(req.approvalSteps);
+    }
   }
   render();
 }
@@ -7453,7 +7497,8 @@ function sigSlotsForRequest(req){
   H.forEach((h,i)=>{ if(['رفض الطلب','إعادة إرسال الطلب بعد التعديل','إعادة المسار والاعتماد'].includes(h.action)) cut = i; if(h.action==='عكس قيد الصرف') rev = i; });
   const last = pred => H.slice(cut+1).reverse().find(pred) || null;
   const cu = userOf(req.createdById), first = (req.history||[])[0];
-  slots.push({kind:'creator', user:cu, actor:(first&&first.actor)||req.createdBy||(cu&&cu.name)||'', time:(first&&first.time)||'', step:'', signed:true, sigOverride:''});
+  // المنشئ في أعلى السلسلة (اعتمد بإنشائه): اسمه في الموضع الأول، وتوقيعه وختمه في الموضع الثاني مع اعتماده — لا يتكرّران
+  slots.push({kind:'creator', user:cu, actor:(first&&first.actor)||req.createdBy||(cu&&cu.name)||'', time:(first&&first.time)||'', step:'', signed:true, sigOverride:'', noSig:isSelfApproved(req)});
   const orders = [...new Set((req.approvalSteps||[]).map(x=>x.sequenceOrder))].sort((a,b)=>a-b);
   orders.forEach(ord=>{
     const rows = req.approvalSteps.filter(x=>x.sequenceOrder===ord);
@@ -7488,7 +7533,7 @@ function renderSeqSignatures(req, context){
     const cfg = (saved[key] && Object.keys(saved[key]).length) ? ensureSigCfg(JSON.parse(JSON.stringify(saved[key])), context, key) : defaultSeqConfig(context, N, idx+1, co.signatureDir||'ltr');
     const u = sl.user;
     const title = u ? ((u.jobTitle && u.jobTitle.trim()) || findRole(u.role).name) : '';
-    const sigImg = sl.sigOverride || (u && u.signatureData) || '', stampImg = (u && u.stampData) || '';
+    const sigImg = sl.noSig ? '' : (sl.sigOverride || (u && u.signatureData) || ''), stampImg = sl.noSig ? '' : ((u && u.stampData) || '');
     const box = b => `position:absolute;left:${b.x*PX}mm;top:${b.y*PX}mm;width:${b.w*PX}mm;height:${b.h*PX}mm;display:flex;align-items:center;justify-content:center;overflow:hidden;text-align:center;`;
     const txt = (t, text, cls, dfltW)=>{
       const b = cfg[t]; if(!b || !b.visible || !text) return '';
@@ -10361,9 +10406,9 @@ function renderCompanyEditForm(){
         ${c.hasCustodyPath ? `<div class="row"><div>
             <label>مسار اعتماد طلب العهدة</label>
             <select id="editCoCusPath" style="--fw:380px;">
-              ${[['exec','المدير التنفيذي ثم المالية (الافتراضي)'],['direct','المدير المباشر ثم المالية'],['full','المسار كاملاً كالطلب العادي'],['finance','إلى المالية مباشرة']].map(([v,l])=>`<option value="${v}" ${c.custodyPathMode===v?'selected':''}>${l}</option>`).join('')}
+              ${[['exec','المدير التنفيذي ثم المالية (الافتراضي)'],['direct','المدير المباشر ثم المالية'],['full','المسار كاملاً كالطلب العادي']].map(([v,l])=>`<option value="${v}" ${c.custodyPathMode===v?'selected':''}>${l}</option>`).join('')}
             </select>
-            <div class="file-hint" style="margin-top:3px;">يُبنى من صاحب العهدة لا من منشئ الطلب. لا أحد يعتمد طلباً أنشأه: إن كان هو المعتمِد صعد الاعتماد لمن فوقه، وإن لم يكن فوقه أحد ذهب الطلب للمالية.</div>
+            <div class="file-hint" style="margin-top:3px;">يُبنى من صاحب العهدة لا من منشئ الطلب. لا أحد يعتمد طلباً أنشأه: إن كان هو المعتمِد صعد الاعتماد لمن فوقه، وإن لم يكن فوقه أحد حُسب إنشاؤه اعتماداً له (توقيعه وختمه في الموضع الثاني).</div>
           </div></div>` : ''}
         <div class="row">
           <div>
@@ -10520,7 +10565,7 @@ async function saveCompanyEdit(){
   }
   if(c.hasCustodyPath){
     const pm = (document.getElementById('editCoCusPath')||{}).value;
-    updates.custody_path_mode = ['exec','direct','full','finance'].includes(pm) ? pm : (c.custodyPathMode||'exec');
+    updates.custody_path_mode = ['exec','direct','full'].includes(pm) ? pm : (c.custodyPathMode==='finance' ? 'exec' : (c.custodyPathMode||'exec'));
   }
   if(file){ updates.logo_data = await readFileAsDataURL(file); }
   const result = await db.from('companies').update(updates).eq('id', c.id);
@@ -10580,6 +10625,13 @@ function renderCenterEditForm(){
           <input type="checkbox" id="editCenterSkipExec" ${c.skipExecutiveManager?'checked':''}> تخطي المدير التنفيذي
         </label>
       </div>
+      ${c.hasMinSingle ? `<div style="margin-top:8px;">
+        <label style="font-size:13px;">المعتمِد الوحيد قبل المالية إذا حذف التخطّي كل المعتمدين</label>
+        <select id="editCenterMinSingle" style="--fw:280px;">
+          ${[['exec','المدير التنفيذي (الافتراضي)'],['direct','المدير المباشر'],['senior','المدير العام']].map(([v,l])=>`<option value="${v}" ${(c.minSingleApprover||'exec')===v?'selected':''}>${l}</option>`).join('')}
+        </select>
+        <div class="file-hint" style="margin-top:3px;">لا يصل طلب للمالية قبل اعتماد واحد على الأقل. إن لم يكن في مسار الطلب من يحمل هذا الدور، يبقى أول معتمِد فيه.</div>
+      </div>` : ''}
 
       <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;margin-top:14px;">
         <input type="checkbox" id="editCenterRequireTransferRef" ${c.requireBankTransferRef?'checked':''}> يطلب من المحاسب تسجيل رقم/مرجع التحويل البنكي قبل الاعتماد
@@ -10614,6 +10666,7 @@ async function saveCenterEdit(){
     skip_dept_manager: document.getElementById('editCenterSkipDept').checked,
     skip_senior_manager: document.getElementById('editCenterSkipSenior').checked,
     skip_executive_manager: document.getElementById('editCenterSkipExec').checked,
+    ...(c.hasMinSingle ? {min_single_approver: (['exec','direct','senior'].includes((document.getElementById('editCenterMinSingle')||{}).value) ? document.getElementById('editCenterMinSingle').value : (c.minSingleApprover||'exec'))} : {}),
     require_bank_transfer_ref: document.getElementById('editCenterRequireTransferRef').checked
   };
   if(file){ updates.letterhead_data = await readFileAsDataURL(file); }
@@ -10624,6 +10677,7 @@ async function saveCenterEdit(){
   c.maxRequestAmount = updates.max_request_amount; c.maxBeneficiaryAmount = updates.max_beneficiary_amount;
   c.minThreshold = updates.min_threshold;
   c.skipDeptManager = updates.skip_dept_manager; c.skipSeniorManager = updates.skip_senior_manager; c.skipExecutiveManager = updates.skip_executive_manager;
+  if(c.hasMinSingle) c.minSingleApprover = updates.min_single_approver;
   c.requireBankTransferRef = updates.require_bank_transfer_ref;
   if(updates.letterhead_data) c.letterheadData = updates.letterhead_data;
   state.editingCenterId = null;
@@ -11203,7 +11257,7 @@ function showPathPreview(){
   if(!host) return;
   const names = chain.map(u=>escH(u.name)+' ('+escH(findRole(u.role).name)+')');
   host.innerHTML = `
-    ${names.length ? `<div style="font-size:13.5px;">${names.join(' <span style="color:var(--muted);">←</span> ')}</div>` : (((state.users.find(u=>u.id===sel.value)||{}).directToTransfer) ? '<div class="sub">لا يوجد معتمِد — هذا المستخدم له «انتقال مباشر»، فيبدأ طلبه مباشرة بخطوات التحويل.</div>' : '<div class="sub" style="color:var(--red);">⛔ لا يوجد معتمِد لهذا المستخدم — لا يمكنه رفع طلب حتى يُحدَّد له معتمِد.</div>')}
+    ${names.length ? `<div style="font-size:13.5px;">${names.join(' <span style="color:var(--muted);">←</span> ')}</div>` : (((state.users.find(u=>u.id===sel.value)||{}).directToTransfer) ? '<div class="sub">لا معتمِد فوقه — هذا المستخدم في أعلى السلسلة («الانتقال المباشر»)، فيُحسب إنشاؤه الطلب اعتماداً له ثم ينتقل للمحاسب.</div>' : '<div class="sub" style="color:var(--red);">⛔ لا يوجد معتمِد لهذا المستخدم — لا يمكنه رفع طلب حتى يُحدَّد له معتمِد.</div>')}
     ${error ? `<div style="color:var(--red);font-size:12.5px;margin-top:6px;">⛔ ${escH(error)}</div>` : ''}
   `;
 }
@@ -12212,9 +12266,9 @@ function renderUserEditForm(){
         <div class="card" style="background:var(--paper);margin:10px 0 0;">
           <label style="display:flex;align-items:center;gap:8px;font-weight:700;">
             <input type="checkbox" id="editUserDirect" ${u.directToTransfer?'checked':''} style="width:auto;">
-            تنتقل طلباته مباشرة إلى مرحلة التحويل (بلا معتمدين)
+            في أعلى السلسلة: يُحسب إنشاؤه الطلب اعتماداً له (الانتقال المباشر إلى التحويل)
           </label>
-          <p class="sub" style="margin:6px 0 0;font-size:12px;">مطفأة افتراضياً. بدونها لا يُرسل طلب مساره فارغ، ولا ينتقل طلبه إلى المحاسب قبل اعتماد واحد على الأقل. تُفعَّل لقمة الهرم أو لمن يُعفى من الاعتماد.</p>
+          <p class="sub" style="margin:6px 0 0;font-size:12px;">مطفأة افتراضياً، وتُفعَّل لقمة الهرم. حين لا يكون فوقه معتمِد يُسجَّل لطلبه «اعتمد بإنشائه الطلب» باسمه، ويظهر توقيعه وختمه في الموضع الثاني من الورقة، ثم ينتقل للمحاسب. بدونها لا يُرسل طلب مساره فارغ.</p>
         </div>
       </div>
       ${(() => {
@@ -13895,7 +13949,7 @@ function renderDetail(app){
     if(okRow){
       const au = userById(okRow.approverId);
       const h = req.history.find(h=>h.action==='اعتماد' && h.userId===okRow.approverId);
-      info = {name: (au?au.name:'') + (okRow.kind==='escalation' ? ' (محال إليه)' : ''), time: h?h.time:''};
+      info = {name: (au?au.name:'') + (okRow.kind==='escalation' ? ' (محال إليه)' : '') + (okRow.approverId===req.createdById ? ' (بإنشائه)' : ''), time: h?h.time:''};
     } else if(noRow){
       const h = req.history.find(h=>h.action==='رفض الطلب' && h.userId===noRow.approverId);
       info = {name:'✕ مرفوض', time: h?h.note:'', rejected:true};
