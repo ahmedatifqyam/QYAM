@@ -12909,7 +12909,7 @@ function renderDashboard(app){
     ${(()=>{ // بطاقة ملخص واحدة بارتفاع الزر، وبجوارها «طلبات موظف…» للمدير؛ وإن غابت امتدت البطاقة لتملأ الصف
       const n = displayList.length, sum = displayList.reduce((a,r)=>a+Number(r.totalAmount||0),0);
       const paidList = displayList.filter(r=>r.status==='completed' && !r.isCancelled), paid = paidList.reduce((a,r)=>a+Number(r.totalAmount||0),0);
-      return `<div class="dash-sumrow no-print${ownerFilterHtml ? ' has-owner' : ''}"><div class="dash-sumcard">يعرض <b>${n.toLocaleString('en')}</b> ${n===1?'طلباً':'طلباً'} بإجمالي <b>${fmtKWDHtml(sum)}</b> د.ك <span class="ds-sep">·</span> صُرف منها <b>${paidList.length.toLocaleString('en')}</b> بقيمة <b>${fmtKWDHtml(paid)}</b> د.ك</div>${ownerFilterHtml}</div>`; })()}
+      return `<div class="dash-sumrow no-print${ownerFilterHtml ? ' has-owner' : ''}"><div class="dash-sumcard">يعرض <b>${n.toLocaleString('en')}</b> ${n===1?'طلب':n===2?'طلبان':(n>=3&&n<=10)?'طلبات':'طلباً'} بإجمالي <b>${fmtKWDHtml(sum)}</b> د.ك <span class="ds-sep">·</span> صُرف منها <b>${paidList.length.toLocaleString('en')}</b> بقيمة <b>${fmtKWDHtml(paid)}</b> د.ك</div>${ownerFilterHtml}</div>`; })()}
   `;
 
   const statCards = `
