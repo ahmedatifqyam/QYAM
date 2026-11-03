@@ -5670,7 +5670,7 @@ function fbtn(k, label, n, on, act, blink, ico, boxC){
   const tint = c ? (h=>{ const v=parseInt(h.slice(1),16); return `rgba(${v>>16&255},${v>>8&255},${v&255},.14)`; })(c) : '';
   const st = (c ? `border-right-color:${c};` : '') + (on && c ? `background:${tint};border-color:${c};` : '');
   const dis = !on && n===0;
-  return `<button type="button" class="fb${k?'':' fb-neu'}${on?' on':''}${blink?' fb-blink':''}" style="${st}" ${dis?'disabled':''} ${qon('click', act)} title="${escH(dis ? 'لا توجد طلبات بهذه الحالة' : on ? 'اضغط مرة أخرى لإلغاء هذا الاختيار' : 'اعرض '+label+' فقط')}">${mark}<span class="fb-l">${escH(label)}</span><span class="fb-n">${Number(n).toLocaleString('en')}</span></button>`;
+  return `<button type="button" class="fb${k?'':' fb-neu'}${on?' on':''}${on && !k && c ? ' fb-tint' : ''}${blink?' fb-blink':''}" style="${st}" ${dis?'disabled':''} ${qon('click', act)} title="${escH(dis ? 'لا توجد طلبات بهذه الحالة' : on ? 'اضغط مرة أخرى لإلغاء هذا الاختيار' : 'اعرض '+label+' فقط')}">${mark}<span class="fb-l">${escH(label)}</span><span class="fb-n">${Number(n).toLocaleString('en')}</span></button>`;
 }
 // عرض واحد لكل أزرار الصف: يُقاس أطول زر بعدد من خمس خانات، ويُزاد ١٠٪
 function fitFilterButtons(){
@@ -5683,7 +5683,7 @@ function fitFilterButtons(){
   if(w>0) app.style.setProperty('--fbw', w+'px');
 }
 function dashAll(){ state.dashOwner = 'all'; state.dashStatusFilter = 'all'; render(); }
-function dashToggleMine(){ state.dashOwner = (state.dashOwner==='mine') ? 'all' : 'mine'; render(); }
+function dashToggleMine(){ state.dashOwner = (state.dashOwner==='mine') ? 'all' : 'mine'; if(state.dashOwner==='mine' && state.dashStatusFilter==='mypending') state.dashStatusFilter = 'all'; render(); }   // «بانتظار قرارك» و«طلباتي» لا يجتمعان: اختيار أحدهما يلغي الآخر فيعود الوميض
 function dashToggleCat(k){ state.dashStatusFilter = (state.dashStatusFilter===k) ? 'all' : k; render(); }
 function dashPickOwner(v){ state.dashOwner = v || 'all'; render(); }
 function statusLegendHtml_unused(){
