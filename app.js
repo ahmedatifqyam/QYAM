@@ -289,7 +289,7 @@ const TAIL_FLOW = ['pending_transfer_request','pending_transfer_approval','pendi
 const STEP_LABELS = {
   pending_decision:'قيد اعتماد القرار', pending_transfer_request:'طلب التحويل (المحاسب)',
   pending_transfer_approval:'اعتماد التحويل (المدير المالي)', pending_disbursement:'إتمام الصرف (المحاسب)', completed:'تم الصرف',
-  custody_receipt:'تأكيد استلام العهدة'
+  custody_receipt:'تأكيد استلام العهدة', custody_close:'إقفال العهدة'
 };
 const STATUS_ROLE_MAP = {
   pending_transfer_request:'accountant', pending_transfer_approval:'cfo', pending_disbursement:'accountant',
@@ -571,6 +571,7 @@ function dbCompanyToState(c){
     custodyMaxOpen: c.custody_max_open==null ? 1 : Number(c.custody_max_open),
     custodyDefaultDays: c.custody_default_days==null ? 30 : Number(c.custody_default_days),
     custodyReceiptDays: c.custody_receipt_days==null ? 3 : Number(c.custody_receipt_days),
+    custodyImgMin: c.custody_img_min==null ? 0 : Number(c.custody_img_min), custodyReviewMode: c.custody_review_mode || 'line', hasCustodyLines: c.custody_img_min!==undefined,
     custodyMaxAmount: c.custody_max_amount==null ? null : Number(c.custody_max_amount),     // فارغ = بلا حد
     custodyMaxTotal: c.custody_max_total==null ? null : Number(c.custody_max_total),        // فارغ = بلا حد
     hasCustodyLimits: c.custody_max_amount!==undefined,
@@ -10437,6 +10438,19 @@ function renderCompanyEditForm(){
             <input id="editCoCusRcpt" type="number" min="1" max="60" step="1" dir="ltr" value="${c.custodyReceiptDays||3}" style="direction:ltr;text-align:center;">
             <div class="file-hint" style="margin-top:3px;">بعدها يُنبَّه صاحب العهدة والمحاسب (التنبيه في مرحلة لاحقة).</div>
           </div>
+          ${c.hasCustodyLines ? `<div>
+            <label>صورة سند المصروف إلزامية من مبلغ (د.ك)</label>
+            <input id="editCoCusImg" type="number" min="0" step="0.001" dir="ltr" value="${c.custodyImgMin||0}" style="direction:ltr;text-align:center;">
+            <div class="file-hint" style="margin-top:3px;">0 = إلزامية لكل مصروف. صورة سند المقبوضات إلزامية دائماً.</div>
+          </div>
+          <div>
+            <label>مراجعة المحاسب للعهدة</label>
+            <select id="editCoCusReview">
+              <option value="line" ${c.custodyReviewMode!=='whole'?'selected':''}>كل سطر وحده (قبول أو رفض بملاحظة)</option>
+              <option value="whole" ${c.custodyReviewMode==='whole'?'selected':''}>العهدة كلها مرة واحدة</option>
+            </select>
+            <div class="file-hint" style="margin-top:3px;">حسب رأي محاسب الشركة.</div>
+          </div>` : ''}
         </div>
       </div>` : ''}
       ${c.logoData ? `<div class="file-hint">✓ يوجد شعار/ترويسة محفوظة</div>` : ''}
@@ -10557,6 +10571,11 @@ async function saveCompanyEdit(){
     updates.custody_max_open = num('editCoCusMax', 1, 20, c.custodyMaxOpen||1);
     updates.custody_default_days = num('editCoCusDays', 1, 365, c.custodyDefaultDays||30);
     updates.custody_receipt_days = num('editCoCusRcpt', 1, 60, c.custodyReceiptDays||3);
+    if(c.hasCustodyLines){
+      const im = parseFloat((document.getElementById('editCoCusImg')||{}).value);
+      updates.custody_img_min = isFinite(im) && im>=0 ? Math.round(im*1000)/1000 : (c.custodyImgMin||0);
+      updates.custody_review_mode = (document.getElementById('editCoCusReview')||{}).value==='whole' ? 'whole' : 'line';
+    }
   }
   if(c.hasCustodyLimits){
     // فارغ أو صفر = بلا حد
@@ -10578,6 +10597,7 @@ async function saveCompanyEdit(){
   c.reviewWindowMinutes = reviewWindow;
   c.reviewMode = updates.review_mode;
   if(c.hasCustodyCols){ c.custodyMaxOpen = updates.custody_max_open; c.custodyDefaultDays = updates.custody_default_days; c.custodyReceiptDays = updates.custody_receipt_days; }
+  if(c.hasCustodyLines){ c.custodyImgMin = updates.custody_img_min; c.custodyReviewMode = updates.custody_review_mode; }
   if(c.hasCustodyLimits){ c.custodyMaxAmount = updates.custody_max_amount; c.custodyMaxTotal = updates.custody_max_total; }
   if(c.hasCustodyPath) c.custodyPathMode = updates.custody_path_mode;
   if(updates.logo_data) c.logoData = updates.logo_data;
@@ -13474,17 +13494,31 @@ function mapCustodyRow(k){
     status:k.status, dueCloseAt:k.due_close_at||'', receivedAt:k.received_at||null, remainingAction:k.remaining_action||'',
     remainingAmount:k.remaining_amount==null ? null : Number(k.remaining_amount), settlementNo:k.settlement_no||'',
     reviewedById:k.reviewed_by_id||null, signedById:k.signed_by_id||null, closedAt:k.closed_at||null,
-    createdById:k.created_by_id, createdAt:k.created_at};
+    createdById:k.created_by_id, createdAt:k.created_at, reviewerId:k.reviewer_id||null, closeRequestedAt:k.close_requested_at||null};
 }
 async function fetchCustodies(){
-  try{ return await db.from('custodies').select('*').order('created_at', {ascending:true}); }catch(e){ return {error:e}; }
+  try{
+    const [r, l] = await Promise.all([
+      db.from('custodies').select('*').order('created_at', {ascending:true}),
+      db.from('custody_lines').select('id,custody_id,kind,amount,description,invoice_no,line_date,has_image,status,review_note,created_at').order('id', {ascending:true})
+    ]);
+    if(r && !r.error) r.lines = (l && !l.error) ? (l.data||[]) : null;
+    return r;
+  }catch(e){ return {error:e}; }
 }
-function custodyFingerprint(){ return (state.custodies||[]).map(k=>[k.id,k.status,k.amount,k.receivedAt||'',k.dueCloseAt,k.purpose].join('|')).join(';'); }
+function mapCustodyLine(x){ return {id:Number(x.id), custodyId:Number(x.custody_id), kind:x.kind, amount:Number(x.amount||0), description:x.description||'', invoiceNo:x.invoice_no||'', lineDate:x.line_date||'', hasImage:!!x.has_image, status:x.status||'draft', reviewNote:x.review_note||''}; }
+function custodyLinesOf(k){ return (state.custodyLines||[]).filter(l=>l.custodyId===k.id); }
+function custodySums(k){
+  const L = custodyLinesOf(k), r3 = v=>Math.round(v*1000)/1000;
+  const R = r3(L.filter(l=>l.kind==='receipt').reduce((a,l)=>a+l.amount,0)), E = r3(L.filter(l=>l.kind==='expense').reduce((a,l)=>a+l.amount,0));
+  return {V:k.amount, C:k.carriedIn, R, E, B:r3(k.amount + k.carriedIn + R - E)};
+}
+function custodyFingerprint(){ return (state.custodies||[]).map(k=>[k.id,k.status,k.amount,k.receivedAt||'',k.dueCloseAt,k.purpose,k.reviewerId||''].join('|')).join(';') + '#' + (state.custodyLines||[]).map(l=>[l.id,l.amount,l.status,l.description].join('|')).join(';'); }
 // يعيد: هل تغيّر شيء؟
 function applyCustodies(res){
   const before = custodyFingerprint(), wasReady = !!state.custodyReady;
   if(!res || res.error){ state.custodyReady = false; state.custodies = []; }
-  else { state.custodyReady = true; state.custodies = (res.data||[]).map(mapCustodyRow); }
+  else { state.custodyReady = true; state.custodies = (res.data||[]).map(mapCustodyRow); state.custodyLinesReady = !!res.lines; state.custodyLines = (res.lines||[]).map(mapCustodyLine); }
   return before !== custodyFingerprint() || wasReady !== state.custodyReady;
 }
 async function loadCustodies(){ applyCustodies(await fetchCustodies()); }
@@ -13792,9 +13826,9 @@ function custodyLifeStepperHtml(req, kc){
       cur: {name: where, time:''}},
     {label:'الصرف', done: hName(paidH), cur:{name: where, time:''}},
     {label:'الاستلام', done: rcpt ? {name:rcpt.actor, time:rcpt.time, uid:kc.holderId} : null, cur:{name:'بانتظار تأكيد ' + hn, time:''}},
-    {label:'تسجيل المصروفات', done:null, cur:{name: ks==='returned' ? 'أُعيدت للتصحيح' : 'في المرحلة الثانية', time:''}},
+    {label:'تسجيل المصروفات', done:null, cur:{name: ks==='returned' ? 'أُعيدت للتصحيح' : custodyLinesOf(kc).length + ' سطر', time:''}},
     {label:'طلب الإقفال', done:null, cur:null},
-    {label:'اعتماد الإقفال', done:null, cur:{name: ks==='pending_sign' ? 'بانتظار توقيع الإدارة' : 'عند المحاسب', time:''}},
+    {label:'اعتماد الإقفال', done:null, cur:{name: ks==='pending_sign' ? 'بانتظار توقيع الإدارة' : (kc.reviewerId ? 'عند المراجِع ' + ((userById(kc.reviewerId)||{}).name||'') : 'عند المحاسب'), time:''}},
     {label:'تسوية الباقي', done:null, cur:null}
   ];
   return stages.map((d,i)=>{
@@ -13832,12 +13866,134 @@ function openCustodyOfRequest(reqId){
 }
 
 // صفحة العهدة: مسار حياتها، صاحبها وموعدها، الأرصدة الخمسة، وزر تأكيد الاستلام
+// ===== العهدة — المرحلة الثانية (١): السطور وطلب الإقفال =====
+function custodyLinesTableHtml(kc){
+  if(!state.custodyLinesReady) return '';
+  const L = custodyLinesOf(kc); if(!L.length) return '<div class="empty no-print" style="margin:10px 0;">لا مصروفات ولا مقبوضات مسجّلة بعد</div>';
+  const canEdit = ['open','returned'].includes(kc.status) && (state.user.id===kc.holderId || state.user.role==='admin');
+  const st = {draft:'', accepted:'<span class="badge cus-badge" style="--cb:#15803d;">مقبول</span>', rejected:'<span class="badge cus-badge" style="--cb:#b91c1c;">مرفوض</span>'};
+  return `<table class="app-table cus-lines"><thead><tr><th style="width:44px;">#</th><th style="width:80px;">النوع</th><th>الوصف</th><th style="width:110px;">التاريخ</th><th style="width:120px;">المبلغ</th><th style="width:150px;">السند</th></tr></thead><tbody>
+    ${L.map((l,i)=>`<tr${l.status==='rejected' ? ' style="background:#FDECEC;"' : ''}>
+      <td class="num">${i+1}</td>
+      <td>${l.kind==='expense' ? 'مصروف' : 'مقبوض'}</td>
+      <td><div class="cell-right">${escH(l.description)}</div>${l.invoiceNo ? `<div class="cell-left">فاتورة ${escH(l.invoiceNo)}</div>` : ''}${l.reviewNote ? `<div style="color:var(--red);font-size:12px;">${escH(l.reviewNote)}</div>` : ''} ${st[l.status]||''}</td>
+      <td>${l.lineDate ? fmtDateDMY(l.lineDate) : ''}</td>
+      <td style="color:${l.kind==='expense' ? 'var(--red)' : 'var(--green)'};font-weight:700;">${l.kind==='expense' ? '−' : '+'}${fmtKWDHtml(l.amount)}</td>
+      <td class="no-print">${l.hasImage ? `<button type="button" class="btn btn-ghost btn-sm" data-on-click="viewCusLineImage" data-on-click-args="${qa([l.id])}">عرض السند</button>` : '<span class="file-hint">بلا سند</span>'}
+        ${canEdit && l.status!=='accepted' ? `<button type="button" class="btn btn-ghost btn-sm" data-on-click="openCusLineForm" data-on-click-args="${qa([kc.id, l.kind, l.id])}">تعديل</button><button type="button" class="btn btn-reject btn-sm" data-on-click="deleteCusLine" data-on-click-args="${qa([l.id])}">حذف</button>` : ''}</td>
+    </tr>`).join('')}</tbody></table>`;
+}
+// نموذج السطر: المبلغ والوصف وصورة السند إلزامية (المصروف من مبلغ تحدده الشركة)؛ رقم الفاتورة والتاريخ اختياريان
+function openCusLineForm(custodyId, kind, lineId){
+  state.cusClose = null;
+  state.cusLine = {custodyId:Number(custodyId), kind, id:Number(lineId)||0};
+  render(); setTimeout(()=>{ const e = document.getElementById('cusLineAmt'); if(e){ e.scrollIntoView({block:'center'}); e.focus(); } }, 50);
+}
+function openCusLineFromList(id){ state.activeCustodyId = Number(id); state.view = 'custody'; openCusLineForm(id, 'expense', 0); }
+function closeCusLineForm(){ state.cusLine = null; render(); }
+function cusLineFormHtml(kc){
+  const f = state.cusLine; if(!f || f.custodyId!==kc.id) return '';
+  const l = f.id ? (state.custodyLines||[]).find(x=>x.id===f.id) : null;
+  const co = state.companies.find(c=>c.id===kc.companyId) || {};
+  const mine = (state.custodies||[]).filter(k=>k.holderId===kc.holderId && k.companyId===kc.companyId && ['open','returned'].includes(k.status));
+  const imgRule = f.kind==='receipt' ? 'صورة السند إلزامية للمقبوض.' : (co.custodyImgMin>0 ? `صورة السند إلزامية إذا كان المبلغ ${fmtKWDPlain(co.custodyImgMin)} فأكثر.` : 'صورة السند إلزامية.');
+  return `<div class="card cus-line-form no-print">
+    <h2 style="margin:0 0 8px;font-size:16px;">${l ? 'تعديل' : 'إضافة'} ${f.kind==='expense' ? 'مصروف' : 'مقبوض'}</h2>
+    ${!l && mine.length>1 ? `<label>العهدة</label><select id="cusLineCus" style="--fw:380px;">${mine.map(k=>`<option value="${k.id}" ${k.id===kc.id?'selected':''}>${escH(k.purpose || 'عهدة')} — ${fmtKWDPlain(k.amount)}</option>`).join('')}</select><div class="file-hint">لديك أكثر من عهدة مفتوحة: اختر العهدة التي يُسجَّل عليها، ويُحسب على بندها.</div>` : ''}
+    <div class="row">
+      <div><label>المبلغ (د.ك) *</label><input id="cusLineAmt" type="number" min="0.001" step="0.001" dir="ltr" style="--fw:180px;direction:ltr;text-align:center;" value="${l ? l.amount : ''}"></div>
+      <div><label>الوصف *</label><input id="cusLineDesc" type="text" maxlength="300" style="--fw:380px;" value="${l ? escH(l.description) : ''}" placeholder="مثال: ضيافة اجتماع أولياء الأمور"></div>
+      <div><label>رقم الفاتورة (اختياري)</label><input id="cusLineInv" type="text" maxlength="60" style="--fw:180px;" value="${l ? escH(l.invoiceNo) : ''}"></div>
+      <div><label>التاريخ</label><input id="cusLineDate" type="date" style="--fw:180px;" value="${l ? l.lineDate : isoDatePlus(0)}" max="${isoDatePlus(0)}"></div>
+    </div>
+    <label>صورة السند ${l && l.hasImage ? '(محفوظة — اختر صورة جديدة لاستبدالها)' : ''}</label>
+    <input id="cusLineImg" type="file" accept="image/*,application/pdf">
+    <div class="file-hint">${imgRule} تُصغَّر الصورة تلقائياً.</div>
+    <div class="actions-row" data-bar-actions>
+      <button type="button" class="btn btn-primary btn-md" data-on-click="saveCusLine">${l ? 'حفظ التعديل' : 'حفظ السطر'}</button>
+      <button type="button" class="btn btn-ghost btn-md" data-on-click="closeCusLineForm">إلغاء</button>
+    </div>
+  </div>`;
+}
+async function cusImageData(file){
+  if(!file) return '';
+  if(file.type==='application/pdf'){ if(file.size > 2000000) throw new Error('ملف PDF أكبر من ٢ ميجابايت'); return await readFileAsDataURL(file); }
+  const r = await resizeImageFile(file, 1400, 1400); return r.dataUrl;
+}
+async function saveCusLine(){
+  const f = state.cusLine; if(!f) return false;
+  const sel = document.getElementById('cusLineCus'); const cid = sel ? Number(sel.value) : f.custodyId;
+  const amt = Math.round(parseFloat((document.getElementById('cusLineAmt')||{}).value)*1000)/1000;
+  const desc = ((document.getElementById('cusLineDesc')||{}).value||'').trim();
+  if(!(amt>0)){ fieldErr('#cusLineAmt', 'اكتب المبلغ'); return false; }
+  if(!desc){ fieldErr('#cusLineDesc', 'اكتب الوصف'); return false; }
+  const k = (state.custodies||[]).find(x=>x.id===cid), co = state.companies.find(c=>c.id===(k||{}).companyId) || {};
+  const l = f.id ? (state.custodyLines||[]).find(x=>x.id===f.id) : null;
+  const file = ((document.getElementById('cusLineImg')||{}).files||[])[0];
+  const needImg = f.kind==='receipt' || amt >= (co.custodyImgMin||0);
+  if(needImg && !file && !(l && l.hasImage)){ fieldErr('#cusLineImg', 'صورة السند إلزامية لهذا السطر'); return false; }
+  let img = '';
+  try{ img = await cusImageData(file); }catch(e){ showToast(e.message||'تعذّر قراءة الصورة', 'error'); return false; }
+  const r = await db.rpc('qy_custody_line_save', {p_custody:cid, p_id:f.id||null, p_kind:f.kind, p_amount:amt, p_desc:desc,
+    p_invoice:((document.getElementById('cusLineInv')||{}).value||'').trim(), p_date:(document.getElementById('cusLineDate')||{}).value||null, p_image:img||null, p_keep_image:true});
+  if(!(await dbCheck(r, 'حفظ سطر العهدة'))) return false;
+  const row = mapCustodyLine(r.data); state.custodyLines = state.custodyLines || [];
+  const i = state.custodyLines.findIndex(x=>x.id===row.id); if(i>=0) state.custodyLines[i] = row; else state.custodyLines.push(row);
+  state.cusLine = null; state.activeCustodyId = cid;
+  showToast(f.kind==='expense' ? 'تم تسجيل المصروف' : 'تم تسجيل المقبوض', 'success'); render();
+  return true;
+}
+async function deleteCusLine(id){
+  if(!confirm('حذف هذا السطر من العهدة؟')) return false;
+  const r = await db.rpc('qy_custody_line_delete', {p_id:Number(id)});
+  if(!(await dbCheck(r, 'حذف سطر العهدة'))) return false;
+  state.custodyLines = (state.custodyLines||[]).filter(x=>x.id!==Number(id));
+  showToast('تم حذف السطر', 'success'); render(); return true;
+}
+async function viewCusLineImage(id){
+  const r = await db.rpc('qy_custody_line_image', {p_id:Number(id)});
+  if(!(await dbCheck(r, 'عرض السند'))) return;
+  if(!r.data){ showToast('لا صورة لهذا السطر', 'error'); return; }
+  openFilePreviewModal(r.data, 'سند سطر العهدة');
+}
+// طلب الإقفال: صاحب العهدة يختار مراجِعاً (محاسباً أو سكرتيراً مثلاً) قبل المحاسب
+function openCusClose(id){ state.cusLine = null; state.cusClose = {custodyId:Number(id)}; render(); setTimeout(()=>{ const e=document.getElementById('cusCloseRev'); if(e) e.scrollIntoView({block:'center'}); }, 50); }
+function cusCloseFormHtml(kc){
+  const f = state.cusClose; if(!f || f.custodyId!==kc.id) return '';
+  const users = state.users.filter(u=>u.id!==kc.holderId && !u.isSuspended && userHasCompany(u, kc.companyId)).sort((a,b)=>a.name.localeCompare(b.name,'ar'));
+  const {B} = custodySums(kc);
+  return `<div class="card cus-line-form no-print">
+    <h2 style="margin:0 0 8px;font-size:16px;">طلب إقفال العهدة</h2>
+    <p class="sub" style="margin:0 0 8px;">المتبقي الآن <b>${cusAmtHtml(B)} د.ك</b> (${custodyLinesOf(kc).length} سطر). بعد الطلب لا تُعدَّل السطور حتى تعود إليك إن رُفض شيء منها.</p>
+    <label>المراجِع قبل المحاسب *</label>
+    <select id="cusCloseRev" style="--fw:380px;"><option value="">— اختر —</option>${users.map(u=>`<option value="${u.id}" ${kc.reviewerId===u.id?'selected':''}>${escH(u.name)} — ${escH(findRole(u.role).name)}</option>`).join('')}</select>
+    <div class="file-hint">يراجع العهدة ثم يعتمدها المحاسب.</div>
+    <div class="actions-row" data-bar-actions>
+      <button type="button" class="btn btn-primary btn-md" data-on-click="submitCusClose">إرسال طلب الإقفال</button>
+      <button type="button" class="btn btn-ghost btn-md" data-on-click="cancelCusClose">إلغاء</button>
+    </div>
+  </div>`;
+}
+function cancelCusClose(){ state.cusClose = null; render(); }
+async function submitCusClose(){
+  const f = state.cusClose; if(!f) return false;
+  const rv = (document.getElementById('cusCloseRev')||{}).value;
+  if(!rv){ fieldErr('#cusCloseRev', 'اختر المراجِع'); return false; }
+  const when = fmtDate();
+  const r = await db.rpc('qy_custody_request_close', {p_id:f.custodyId, p_reviewer:rv, p_time:when});
+  if(!(await dbCheck(r, 'طلب إقفال العهدة'))) return false;
+  const k = upsertCustodyLocal(r.data);
+  const req = state.requests.find(x=>x.id===k.requestId);
+  if(req) req.history.push({step:'custody_close', actor:state.user.name, userId:state.user.id, action:'طلب إقفال العهدة', note:'المراجِع: '+((userById(rv)||{}).name||''), time:when});
+  state.cusClose = null; showToast('أُرسل طلب الإقفال إلى المراجِع', 'success'); render(); return true;
+}
+
 function renderCustodyPage(app){
   const kc = (state.custodies||[]).find(x=>x.id===state.activeCustodyId);
   const req = kc ? state.requests.find(r=>r.id===kc.requestId) : null;
   if(!kc || !req){ app.innerHTML = `<h1>العهدة</h1><div class="empty">العهدة غير موجودة أو لا تملك صلاحية عرضها.</div><div class="actions-row"><button class="btn btn-ghost btn-md" data-on-click="openCustodyList">عهدي</button></div>`; return; }
   const holder = userById(kc.holderId), hn = holder ? holder.name : '—', isHolder = state.user.id===kc.holderId;
-  const V = kc.amount, C = kc.carriedIn, R = 0, E = 0, B = Math.round((V + C + R - E)*1000)/1000;
+  const {V, C, R, E, B} = custodySums(kc);
   const card = (lbl, v, sub) => `<div class="cus-card${v<0 ? ' neg' : ''}${lbl==='المتبقي' ? ' main' : ''}"><div class="cus-card-l">${lbl}</div><div class="cus-card-v">${cusAmtHtml(v)} <span class="cus-unit">د.ك</span></div>${sub ? `<div class="cus-card-s">${sub}</div>` : ''}</div>`;
   const bi = (state.budgetItems||[]).find(b=>b.id===kc.budgetItemId);
   let act = '';
@@ -13853,12 +14009,18 @@ function renderCustodyPage(app){
     act = `<div class="actions-row no-print no-bar"><button class="btn btn-approve btn-lg" disabled title="يُتاح بعد صرف العهدة">✓ تأكيد استلام العهدة</button></div>
        <div class="why-line">يُتاح لصاحب العهدة بعد صرفها. طلبها الآن: ${escH(custodyReqWhere(req))}.</div>`;
   } else if(['open','returned'].includes(kc.status)){
-    act = `<div class="actions-row no-print no-bar">
-        <button class="btn btn-ghost btn-md" disabled title="في المرحلة الثانية من نظام العهدة">إضافة مصروف</button>
-        <button class="btn btn-ghost btn-md" disabled title="في المرحلة الثانية من نظام العهدة">إضافة مقبوض</button>
-        <button class="btn btn-ghost btn-md" disabled title="في المرحلة الثانية من نظام العهدة">طلب الإقفال</button>
+    const can = isHolder || state.user.role==='admin', ready = state.custodyLinesReady;
+    const dis = !ready ? 'disabled title="تُفعَّل بعد تحديث قاعدة البيانات"' : (!can ? 'disabled title="لصاحب العهدة وحده"' : '');
+    act = `<div class="actions-row no-print" ${can && ready ? 'data-bar-actions' : ''}>
+        <button class="btn btn-primary btn-md" data-on-click="openCusLineForm" data-on-click-args="${qa([kc.id, 'expense', 0])}" ${dis} title="تسجيل مصروف من العهدة بمبلغه ووصفه وصورة سنده">إضافة مصروف</button>
+        <button class="btn btn-ghost btn-md" data-on-click="openCusLineForm" data-on-click-args="${qa([kc.id, 'receipt', 0])}" ${dis} title="مبلغ عاد إلى العهدة (استرداد مثلاً) — صورة السند إلزامية">إضافة مقبوض</button>
+        <button class="btn btn-ghost btn-md" data-on-click="openCusClose" data-on-click-args="${qa([kc.id])}" ${dis} title="تنهي التسجيل وتختار مراجِعاً قبل المحاسب">طلب الإقفال</button>
       </div>
-      <div class="why-line">تسجيل المصروفات والمقبوضات وطلب الإقفال: في المرحلة الثانية من نظام العهدة.</div>`;
+      ${kc.status==='returned' ? '<div class="why-line" style="color:var(--red);">أُعيدت العهدة للتصحيح: عدّل السطور المرفوضة ثم اطلب الإقفال من جديد.</div>' : (!can ? `<div class="why-line">التسجيل لصاحب العهدة «${escH(hn)}» وحده.</div>` : '')}
+      ${cusLineFormHtml(kc)}${cusCloseFormHtml(kc)}`;
+  } else if(kc.status==='close_requested'){
+    const rv = userById(kc.reviewerId);
+    act = `<div class="why-line" style="color:var(--text);">طُلب إقفالها${kc.closeRequestedAt ? ' في '+fmtDateDMY(String(kc.closeRequestedAt).slice(0,10)) : ''}، وهي عند المراجِع «${escH(rv ? rv.name : '—')}» ثم المحاسب. لا تُعدَّل السطور الآن. (المراجعة والاعتماد في الجزء الثاني.)</div>`;
   }
   const H = req.history || [];
   app.innerHTML = `
@@ -13892,6 +14054,7 @@ function renderCustodyPage(app){
         </div>
         ${act}
       </div>
+      ${custodyLinesTableHtml(kc)}
       <div class="history no-print">
         <h2>سجل الطلب والعهدة</h2>
         ${H.map(h=>`
@@ -13930,6 +14093,7 @@ function renderCustodyList(app){
     ${waiting.length ? `<div class="note-box" style="background:var(--amber-bg);color:var(--amber);"><b>⏰ ${waiting.length===1 ? 'عهدة صُرفت لك' : waiting.length+' عهد صُرفت لك'} بانتظار تأكيد استلامك</b> — افتحها واضغط «تأكيد استلام العهدة».</div>` : ''}
     <div class="actions-row" style="margin-top:10px;">
       <button class="btn btn-primary btn-md" data-on-click="openNewCustody" ${canNew ? '' : 'disabled title="ليست لديك صلاحية طلب عهدة (قراءة فقط)"'}>+ عهدة جديدة</button>
+      ${(()=>{ const op = mine.filter(k=>['open','returned'].includes(k.status)); return `<button class="btn btn-ghost btn-md" ${op.length ? `data-on-click="openCusLineFromList" data-on-click-args="${qa([op[0].id])}"` : 'disabled title="لا عهدة مفتوحة باسمك"'} title="تسجيل مصروف على عهدتك المفتوحة">إضافة مصروف</button>`; })()}
     </div>
     ${canNew ? '' : '<div class="why-line">ليست لديك صلاحية طلب عهدة (صلاحيتك: قراءة فقط).</div>'}
     <h2 style="margin-top:18px;">في عهدتي</h2>
@@ -14153,7 +14317,7 @@ function renderDetail(app){
 }
 
 // ===================== أثر الضغط على الأزرار: انشغال + منع الضغط المزدوج + ✓ عند النجاح =====================
-const BUSY_FNS = ['setUserAvatar','removeUserAvatar','submitCustody','confirmCustodyReceipt','approve','markDisbursed','resubmit','confirmRejectModal','submitBankTransfer','confirmManualSign','saveAccount','addCompany','addCenter','addCustomRole','addUser','saveUserEdit','saveCenterEdit','saveCompanyEdit','saveSigDesignerConfig','restoreRequest','confirmDeletePassword'];
+const BUSY_FNS = ['saveCusLine','deleteCusLine','submitCusClose','setUserAvatar','removeUserAvatar','submitCustody','confirmCustodyReceipt','approve','markDisbursed','resubmit','confirmRejectModal','submitBankTransfer','confirmManualSign','saveAccount','addCompany','addCenter','addCustomRole','addUser','saveUserEdit','saveCenterEdit','saveCompanyEdit','saveSigDesignerConfig','restoreRequest','confirmDeletePassword'];
 const _busyLocks = {};
 function clickedButton(){
   const ev = window.event, t = ev && ev.target;
