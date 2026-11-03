@@ -14665,3 +14665,6 @@ BUSY_FNS.forEach(wrapBusy);
 })();
 
 initApp();
+
+// تثبيت النظام كتطبيق (PWA): عامل خدمة خفيف الشبكة أولاً
+try{ if('serviceWorker' in navigator && location.protocol==='https:' || location.hostname==='localhost'){ window.addEventListener('load',()=>{ navigator.serviceWorker.register('sw.js').catch(()=>{}); }); } }catch(e){}
