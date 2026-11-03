@@ -551,7 +551,9 @@ function dbCompanyToState(c){
     custodyReceiptDays: c.custody_receipt_days==null ? 3 : Number(c.custody_receipt_days),
     custodyMaxAmount: c.custody_max_amount==null ? null : Number(c.custody_max_amount),     // فارغ = بلا حد
     custodyMaxTotal: c.custody_max_total==null ? null : Number(c.custody_max_total),        // فارغ = بلا حد
-    hasCustodyLimits: c.custody_max_amount!==undefined
+    hasCustodyLimits: c.custody_max_amount!==undefined,
+    custodyPathMode: c.custody_path_mode || 'exec',
+    hasCustodyPath: c.custody_path_mode!==undefined
   };
 }
 
@@ -676,6 +678,9 @@ async function loadAll(){
   state.appSettings = {};
   d(7).forEach(t=>{ state.appSettings[t.key] = t.value; });
   brandCacheSet('name', state.appSettings.system_name || ''); brandCacheSet('logo', state.appSettings.system_logo || '');
+  if('system_tagline' in state.appSettings) brandCacheSet('tagline', state.appSettings.system_tagline || '-');
+  if('system_tagline2' in state.appSettings) brandCacheSet('tagline2', state.appSettings.system_tagline2 || '-');
+  state.brandSettled = true;
 
   state.barToggles = {};
   d(8).forEach(t=>{ state.barToggles[t.button_key] = t.visible; });
@@ -815,19 +820,36 @@ function startAutoRefresh(){
 const OVERDUE_DAYS = 3;
 let BASE_TITLE = document.title;
 // اسم النظام وشعاره: من الإعدادات، وقبل الدخول من دالة عامة؛ ويُحفظان في المتصفح فيظهران فوراً في الزيارة التالية
-const DEFAULT_SYSTEM_NAME = 'نظام مؤسسة القيم';
+const DEFAULT_SYSTEM_NAME = 'ميزان القيم';
+const DEFAULT_TAGLINE  = 'كل دينار بمساره… من الطلب إلى الصرف';
+const DEFAULT_TAGLINE2 = 'طلبات الصرف ومسارات الاعتماد · العهد وتسويتها · الإيرادات وأرصدة البنود — لكل شركات المؤسسة، وكل خطوة فيها موثّقة باسم صاحبها ووقتها.';
 function brandCache(k){ try{ return localStorage.getItem('qayam_brand_'+k) || ''; }catch(e){ return ''; } }
 function brandCacheSet(k, v){ try{ if(v) localStorage.setItem('qayam_brand_'+k, v); else localStorage.removeItem('qayam_brand_'+k); }catch(e){} }
-function systemName(){ const v = (state.appSettings && state.appSettings.system_name) || brandCache('name') || DEFAULT_SYSTEM_NAME; return v; }
+// الاسم لا يظهر ثم يتغيّر: قبل وصول الاسم من قاعدة البيانات يبقى مكانه فارغاً (إلا إن حفظه المتصفح من زيارة سابقة)،
+// وإن تأخّر الخادم أكثر من ٣ ثوانٍ ظهر الاسم الافتراضي
+function systemName(){ const v = (state.appSettings && state.appSettings.system_name) || brandCache('name'); return v || (state.brandSettled ? DEFAULT_SYSTEM_NAME : ''); }
+// السطران تحت الاسم في صفحة الدخول: «فارغ» في الإعدادات = لا يظهر السطر
+function systemTagline(k){
+  const key = k===2 ? 'system_tagline2' : 'system_tagline', ck = k===2 ? 'tagline2' : 'tagline';
+  const a = state.appSettings || {};
+  if(Object.prototype.hasOwnProperty.call(a, key)) return a[key] || '';
+  const c = brandCache(ck); if(c) return c === '-' ? '' : c;
+  return state.brandSettled ? (k===2 ? DEFAULT_TAGLINE2 : DEFAULT_TAGLINE) : '';
+}
 function systemLogo(){ return (state.appSettings && state.appSettings.system_logo) || brandCache('logo') || ''; }
 async function loadPublicBrand(){
   try{
-    const r = await db.rpc('qy_public_brand');
-    if(r.error || !r.data) return;
-    state.appSettings = state.appSettings || {};
-    if(r.data.name){ state.appSettings.system_name = r.data.name; brandCacheSet('name', r.data.name); }
-    if(r.data.logo){ state.appSettings.system_logo = r.data.logo; brandCacheSet('logo', r.data.logo); }
+    const r = await Promise.race([db.rpc('qy_public_brand'), new Promise(res=>setTimeout(()=>res({timeout:true}), 3000))]);
+    if(r && !r.timeout && !r.error && r.data){
+      state.appSettings = state.appSettings || {};
+      if(r.data.name){ state.appSettings.system_name = r.data.name; brandCacheSet('name', r.data.name); }
+      state.appSettings.system_logo = r.data.logo || ''; brandCacheSet('logo', r.data.logo || '');
+      // قاعدة لم تُحدَّث بعد لا تُرجع السطرين: يبقى الافتراضي
+      if('tagline' in r.data){ state.appSettings.system_tagline = r.data.tagline || ''; brandCacheSet('tagline', r.data.tagline || '-'); }
+      if('tagline2' in r.data){ state.appSettings.system_tagline2 = r.data.tagline2 || ''; brandCacheSet('tagline2', r.data.tagline2 || '-'); }
+    }
   }catch(e){}
+  state.brandSettled = true;
 }
 function currentCompanyName(){ const c = state.companies.find(x=>x.id===state.currentCompanyId); return c ? c.nameAr : ''; }
 function userCenterLabel(){
@@ -837,7 +859,7 @@ function userCenterLabel(){
   if(c) return c.name;
   return state.user.role==='admin' ? '' : 'الإدارة';
 }
-function refreshBaseTitle(){ const co = currentCompanyName(); BASE_TITLE = systemName() + (co ? ' - ' + co : ''); }
+function refreshBaseTitle(){ const co = currentCompanyName(), sn = systemName(); BASE_TITLE = (sn && co) ? sn + ' - ' + co : (sn || co || '\u200F'); }
 // موقع الاختبار يُعرف من قاعدة بياناته: تظهر شارة «نسخة تجريبية» فوق اسم النظام، ولا تظهر في النظام الحقيقي
 function isTestDb(){ return dbProjectRef()==='xisaigwntqeowathxpsr'; }
 function dbProjectRef(){ try{ return new URL(SUPABASE_URL).hostname.split('.')[0]; }catch(e){ return ''; } }
@@ -1740,8 +1762,11 @@ document.addEventListener('click', function(e){
 
 async function initApp(){
   const app = document.getElementById('app');
+  // الاسم المحفوظ في المتصفح من زيارة سابقة يظهر فوراً؛ وإلا يبقى مكانه فارغاً حتى يصل من قاعدة البيانات
+  try{ renderBrand(); }catch(e){}
   const verifyId = new URLSearchParams(window.location.search).get('verify');
   if(verifyId){
+    state.brandSettled = true; try{ renderBrand(); }catch(e){}
     await renderVerifyPage(verifyId);
     return;
   }
@@ -1759,6 +1784,7 @@ async function initApp(){
       await loadPublicBrand();
     }
   }catch(e){
+    state.brandSettled = true;
     console.error('DB init error', e);
     showToast('تعذر الاتصال بقاعدة البيانات. تأكد من تنفيذ ملف SQL في Supabase أولاً، ثم حدّث الصفحة.','error');
   }
@@ -2751,8 +2777,9 @@ function viewNote(){
   if(v==='newRequestChoice') return 'ابدأ طلباً جديداً فارغاً أو انسخ طلباً سابقاً.';
   if(v==='duplicateList') return 'اختر الطلب الذي تريد نسخه طلباً جديداً.';
   if(v==='oldRequests') return 'طلباتك في شركات لم تعد مرتبطاً بها، للمتابعة فقط.';
-  if(v==='custodyList') return 'العهد التي في عهدتك أو طلبتها لغيرك، وحالة كل منها. اضغط أي عهدة لفتح طلبها.';
-  if(v==='newCustody') return (state.custodyDraft && state.custodyDraft.reqId) ? 'عدّل بيانات العهدة ثم اضغط «حفظ التعديلات».' : 'اختر صاحب العهدة والبند والمبلغ والغرض، ثم اضغط «إرسال للاعتماد». تمرّ العهدة بمسار طلب الصرف المعتاد.';
+  if(v==='custodyList') return 'العهد التي في عهدتك أو طلبتها لغيرك، وحالة كل منها. اضغط أي عهدة لفتح صفحتها.';
+  if(v==='custody') return 'حياة العهدة من طلبها إلى إقفالها، وأرصدتها. مسار اعتماد طلبها بأسماء المعتمدين في صفحة الطلب: «عرض الطلب».';
+  if(v==='newCustody') return (state.custodyDraft && state.custodyDraft.reqId) ? 'عدّل بيانات العهدة ثم اضغط «حفظ التعديلات».' : 'اختر صاحب العهدة والبند والمبلغ والغرض، ثم اضغط «إرسال للاعتماد». يعتمدها من حدّدته الشركة لمسار العهدة، ثم المالية.';
   if(v==='dashboard') return state.dashStatusFilter==='mypending' ? 'الطلبات التي تنتظر قرارك الآن. اضغط أي طلب لفتحه واتخاذ قرارك.' : 'كل طلبات الصرف التي تخصك وحالة كل منها. اضغط أي طلب لفتحه.';
   if(v==='monitor') return 'ما يحدث في الشركة الآن: من ينتظر قراره، وما في يد المالية، وآخر الحركات.';
   if(v==='securityLog') return 'تنبيهات الحماية وأخطاء الواجهة ومحاولات الدخول، وما روجع منها.';
@@ -2780,7 +2807,7 @@ function setAccountSec(i){
 // مجموعات الشريط الجانبي القابلة للفتح والإغلاق: المعاملات المالية | لوحة التحكم | المساعدة
 function inFinArea(){
   const v = state.view;
-  if(['dashboard','detail','newRequest','newRequestChoice','duplicateList','printPreview','revenues','recurring','handovers','oldRequests','monitor','budgetReport','cancelledArchive','custodyList','newCustody'].includes(v)) return true;
+  if(['dashboard','detail','newRequest','newRequestChoice','duplicateList','printPreview','revenues','recurring','handovers','oldRequests','monitor','budgetReport','cancelledArchive','custodyList','newCustody','custody'].includes(v)) return true;
   return !inAdminArea() && ['ledger','analytics'].includes(v);
 }
 function inHelpArea(){ return ['guide','sitemap'].includes(state.view); }
@@ -2845,7 +2872,7 @@ function navSections(){
   if(state.custodyReady && pageLevel('custody')!=='none'){
     const kN = custodyAwaitingMine().length;
     out.push({key:'cus', ico:'case', label:'العهد', count:kN, pages:[
-      {label:'عهدي', count:kN, views:['custodyList'], js:[["openCustodyList",[]]]},
+      {label:'عهدي', count:kN, views:['custodyList','custody'], js:[["openCustodyList",[]]]},
       {label:'عهدة جديدة', views:['newCustody'], js:[["openNewCustody",[]]]}
     ]});
   }
@@ -2941,7 +2968,7 @@ function renderAppNavInner(){
   nav.innerHTML = `
     <div class="nav-head"><button type="button" class="nav-toggle" ${qon('click', mode==='drawer'?[["closeNavDrawer",[]]]:[["toggleNav",[]]])} title="${mode==='drawer'?'إغلاق':'طيّ/فتح القائمة'}">${mode==='drawer'?'✕':'☰'}</button><span class="nav-title">القائمة</span></div>
     <nav class="nav-list">${navTopItems().map(itemHtml).join('')}</nav>
-    <div class="nav-foot"><div class="nav-user${state.view==='account'?' on':''}" role="button" tabindex="0" title="حسابي — ${escH(state.user.name)} · ${escH(findRole(state.user.role).name)}" ${qon('click', navClick([["#10",[]]]))} data-on-keydown="#35"><div class="nav-avatar">${(state.avatars||{})[state.user.id] ? `<img src="${escH(state.avatars[state.user.id])}" alt="">` : escH((state.user.name||'?').trim().charAt(0))}</div><div class="nav-uinfo"><div class="nav-uname">${escH(state.user.name)}</div><div class="nav-urole">${escH(findRole(state.user.role).name)}</div></div></div><button type="button" class="nav-logout" title="تسجيل الخروج" aria-label="تسجيل الخروج" ${qon('click', navClick([["logout",[]]]))}><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg><span>خروج</span></button></div>`;
+    <div class="nav-foot"><div class="nav-user${state.view==='account'?' on':''}" role="button" tabindex="0" title="حسابي — ${escH(state.user.name)} · ${escH(findRole(state.user.role).name)}" ${qon('click', navClick([["#10",[]]]))} data-on-keydown="#35"><div class="nav-avatar">${avSrc(state.user.id) ? `<img src="${escH(avSrc(state.user.id))}" alt="">` : escH((state.user.name||'?').trim().charAt(0))}</div><div class="nav-uinfo"><div class="nav-uname">${escH(state.user.name)}</div><div class="nav-urole">${escH(findRole(state.user.role).name)}</div></div></div><button type="button" class="nav-logout" title="تسجيل الخروج" aria-label="تسجيل الخروج" ${qon('click', navClick([["logout",[]]]))}><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg><span>خروج</span></button></div>`;
 }
 let _navResizeT=null;
 window.addEventListener('resize', ()=>{ clearTimeout(_navResizeT); _navResizeT=setTimeout(()=>{ if(state.navDrawer && window.innerWidth>=700) state.navDrawer=false; renderAppNav(); },80); });
@@ -4150,7 +4177,8 @@ async function createNewRequest(o){
   const isCustody = o.requestType==='custody';
   const creatorUser = state.users.find(u=>u.id===state.user.id);
   const {steps: rawChain, error: chainError} = buildDecisionChain(creatorUser, state.currentCompanyId);
-  if(chainError){
+  // العهدة: مسارها يبنيه الخادم من صاحب العهدة وإعداد الشركة (لا من منشئها)، فلا يُحكم عليه هنا
+  if(chainError && !isCustody){
     showToast('تعذّر بناء مسار اعتماد الطلب: '+chainError+'. راجع مدير النظام لتصحيح الهيكل التنظيمي.', 'error');
     return false;
   }
@@ -4170,9 +4198,10 @@ async function createNewRequest(o){
   }
   const roleLabelFor = ()=>'pending_decision';
   chain = chain.map(s=>({roleLabel: roleLabelFor(), approverId: s.approverId}));
-  const initialStatus = chain.length>0 ? 'pending_decision' : 'pending_transfer_request';
+  if(isCustody){ isFastTracked = false; }
+  const initialStatus = (isCustody || chain.length>0) ? 'pending_decision' : 'pending_transfer_request';
   // طلب بلا معتمدين لا يُرسل إلا لمن فُعّل له الانتقال المباشر، أو إن كان التخطي بسبب حد المبلغ الصغير للمركز
-  if(chain.length===0 && !isFastTracked && !(creatorUser && creatorUser.directToTransfer)){
+  if(!isCustody && chain.length===0 && !isFastTracked && !(creatorUser && creatorUser.directToTransfer)){
     showToast('لا يوجد معتمِد لطلبك، فلا يمكن إرساله بلا اعتماد. حدّد مديراً في حسابك أو اطلب من مدير النظام تفعيل «الانتقال المباشر إلى التحويل».', 'error');
     return false;
   }
@@ -4249,7 +4278,9 @@ async function createNewRequest(o){
     const chainRes = await db.rpc('qy_set_chain', {p_req: req.id, p_reset: false});
     if(!(await dbCheck(chainRes, 'بناء مسار الاعتماد'))){ await db.from('requests').delete().eq('id', req.id); return false; }
     req.approvalSteps = (chainRes.data||[]).map(mapStepRow);
-    if(!req.approvalSteps.length){
+    // عهدة بلا معتمدين (إعداد «إلى المالية مباشرة»، أو لا أحد فوق صاحبها): نقلها الخادم إلى المحاسب
+    if(isCustody && !req.approvalSteps.length) req.status = 'pending_transfer_request';
+    else if(!req.approvalSteps.length){
       await db.from('requests').delete().eq('id', req.id);
       showToast('تعذّر بناء مسار الاعتماد في الخادم — حدّث الصفحة وحاول مرة أخرى، أو راجع مدير النظام', 'error');
       return false;
@@ -4429,6 +4460,7 @@ function startReviewTicker(){
 
 async function rebuildChainIfUntouched(req){
   if(!req || req.isCancelled) return false;
+  if(req.requestType==='custody') return false;   // مسار العهدة يبنيه الخادم من صاحب العهدة وإعداد الشركة، لا يحسبه المتصفح
   // يُعاد البناء من متصفح صاحب الطلب أو مدير النظام فقط: غيرهما قد لا يرى كل المستخدمين فيحسب مساراً ناقصاً،
   // والخادم يمنعه من الكتابة أصلاً فيبقى الطلب بلا خطوات
   if(!state.user || !(state.user.role==='admin' || state.user.id===req.createdById)) return false;
@@ -4713,7 +4745,7 @@ async function rebuildRequestPath(req){
   const creator = state.users.find(u=>u.id===req.createdById);
   if(!creator){ showToast('تعذر إيجاد صاحب الطلب', 'error'); return; }
   const {steps: newSteps, error: chainError} = buildDecisionChain(creator, req.companyId);
-  if(chainError){
+  if(chainError && req.requestType!=='custody'){   // مسار العهدة من صاحبها، يحكم عليه الخادم
     showToast('تعذّر إعادة البناء: '+chainError, 'error');
     return;
   }
@@ -5945,7 +5977,7 @@ function measureAndPaginateBeneficiaries(req, headerHtml, footerHtml, signatureO
 
 function renderLetterPages(req){
   const docCompany = state.companies.find(c=>c.id===req.companyId);
-  // سند العهدة: العنوان والنص باسم صاحبها وغرضها وموعد تسويتها، والجدول نفسه (بلا خصم ولا إضافي)
+  // ورقة «طلب صرف عهدة»: العنوان والنص باسم صاحبها وغرضها وموعد تسويتها، والجدول نفسه (بلا خصم ولا إضافي)
   const isCus = req.requestType==='custody';
   const kc = isCus ? custodyOf(req) : null;
   const cusHolder = isCus ? ((kc && (userById(kc.holderId)||{}).name) || ((req.beneficiaries||[])[0]||{}).name || '') : '';
@@ -5966,7 +5998,7 @@ function renderLetterPages(req){
       <p class="doc-greeting" style="margin:0;padding-right:0;">تحية طيبة وبعد،...</p>
       <span class="doc-red" style="font-size:14px;font-weight:600;text-decoration:underline;">رقم الطلب: ${req.number || '— قيد المراجعة —'}</span>
     </div>
-    <div class="doc-subject-bar" style="margin-top:4px;">${isCus ? 'سند عهدة' : 'طلب صرف'} – <span>${escH(req.reason)}</span></div>
+    <div class="doc-subject-bar" style="margin-top:4px;">${isCus ? 'طلب صرف عهدة' : 'طلب صرف'} – <span>${escH(req.reason)}</span></div>
     <div style="margin-top:4px;font-size:13px;">بند الصرف: <b>${requestBudgetName(req) ? escH(requestBudgetName(req)) : 'غير محدد'}</b></div>
     ${isCus
       ? `<p class="doc-body-text" style="margin-top:4px;">بالإشارة إلى الموضوع أعلاه، يرجى التكرم بالموافقة على صرف عهدة مالية باسم <span class="doc-red">${escH(cusHolder)}</span> لغرض <span class="doc-red">${escH(req.detailedReason || req.reason)}</span>${cusDue ? `، على أن تُسوّى بالفواتير في موعد أقصاه <span class="doc-red">${fmtDateDMY(cusDue)}</span>` : ''}، وفق الجدول الآتي:</p>`
@@ -6159,6 +6191,7 @@ function render(){
   else if(state.view==='pathCheck') renderPathCheckPage(app);
   else if(state.view==='monitor') renderMonitor(app);
   else if(state.view==='custodyList') renderCustodyList(app);
+  else if(state.view==='custody') renderCustodyPage(app);
   else if(state.view==='newCustody') renderNewCustody(app);
 
   // حقول الدور والشركة وسلسلة الاعتماد يغيّرها مدير النظام وحده (الخادم يمنع غيره) — تُقفل لغيره بدل أن يظهر له خطأ
@@ -6303,17 +6336,11 @@ function applyPageWidth(){
   app.style.marginLeft  = anchored ? 'auto' : '';
   // --page-box يتبعه الشريط السفلي وشريط الإرسال فتبدأ أزرارهما مع حافة الصندوق
   const setBox = v => document.documentElement.style.setProperty('--page-box', v);
-  // معاينة الطلب: الورقة بحجمها الثابت وتتوسّط الشاشة كلها (لا المساحة بجوار الشريط الجانبي) إن اتّسعت الشاشة
-  const setShift = v => document.documentElement.style.setProperty('--page-shift', v);
-  setShift('0px');
-  if((state.view==='detail' || state.view==='printPreview') && anchored && window.innerWidth>1000){
-    // عرض الشريط من قيمته المضبوطة لا من الحشوة المحسوبة: الحشوة تتحرّك (انتقال ٠٫١٥ ثانية) فتُقرأ قديمة لحظة الطيّ أو الفتح
-    const navW = document.body.classList.contains('has-nav') ? (parseFloat(document.documentElement.style.getPropertyValue('--nav-pr'))||0) : 0;
-    const vw = document.documentElement.clientWidth; const boxW = Math.min(DOC_BOX_W, vw - navW);
-    const shift = Math.max(0, Math.round((vw - boxW)/2 - navW));
+  // صفحة الطلب ومعاينته: بجانب الشريط الجانبي كبقية الصفحات (نقطة بداية واحدة للعين)، بعرض الورقة الثابت
+  // لا تتبع العرض الذي يختاره المستخدم: هما صورة الورقة المطبوعة، فتظهر بالحجم نفسه عند الجميع
+  document.documentElement.style.setProperty('--page-shift', '0px');
+  if(state.view==='detail' || state.view==='printPreview' || state.view==='custody'){
     app.style.maxWidth = DOC_BOX_W + 'px';
-    app.style.marginRight = shift + 'px';
-    setShift(shift + 'px');
     setBox(DOC_BOX_W + 'px');
     fitPreviewZoom();
     return;
@@ -10331,6 +10358,13 @@ function renderCompanyEditForm(){
       </div>
       ${c.hasCustodyCols ? `<div class="card" style="background:var(--paper);margin-top:10px;">
         <label>💼 العهد</label>
+        ${c.hasCustodyPath ? `<div class="row"><div>
+            <label>مسار اعتماد طلب العهدة</label>
+            <select id="editCoCusPath" style="--fw:380px;">
+              ${[['exec','المدير التنفيذي ثم المالية (الافتراضي)'],['direct','المدير المباشر ثم المالية'],['full','المسار كاملاً كالطلب العادي'],['finance','إلى المالية مباشرة']].map(([v,l])=>`<option value="${v}" ${c.custodyPathMode===v?'selected':''}>${l}</option>`).join('')}
+            </select>
+            <div class="file-hint" style="margin-top:3px;">يُبنى من صاحب العهدة لا من منشئ الطلب. لا أحد يعتمد طلباً أنشأه: إن كان هو المعتمِد صعد الاعتماد لمن فوقه، وإن لم يكن فوقه أحد ذهب الطلب للمالية.</div>
+          </div></div>` : ''}
         <div class="row">
           <div>
             <label>أقصى عدد عهد مفتوحة للشخص</label>
@@ -10484,6 +10518,10 @@ async function saveCompanyEdit(){
     updates.custody_max_amount = amtOrNull('editCoCusAmt');
     updates.custody_max_total = amtOrNull('editCoCusTot');
   }
+  if(c.hasCustodyPath){
+    const pm = (document.getElementById('editCoCusPath')||{}).value;
+    updates.custody_path_mode = ['exec','direct','full','finance'].includes(pm) ? pm : (c.custodyPathMode||'exec');
+  }
   if(file){ updates.logo_data = await readFileAsDataURL(file); }
   const result = await db.from('companies').update(updates).eq('id', c.id);
   if(!(await dbCheck(result, 'تعديل الشركة'))) return;
@@ -10495,6 +10533,7 @@ async function saveCompanyEdit(){
   c.reviewMode = updates.review_mode;
   if(c.hasCustodyCols){ c.custodyMaxOpen = updates.custody_max_open; c.custodyDefaultDays = updates.custody_default_days; c.custodyReceiptDays = updates.custody_receipt_days; }
   if(c.hasCustodyLimits){ c.custodyMaxAmount = updates.custody_max_amount; c.custodyMaxTotal = updates.custody_max_total; }
+  if(c.hasCustodyPath) c.custodyPathMode = updates.custody_path_mode;
   if(updates.logo_data) c.logoData = updates.logo_data;
   state.editingCompanyId = null;
   showToast('تم حفظ تعديلات الشركة', 'success');
@@ -11468,6 +11507,22 @@ function renderBrandingPanel(){
         <div><input id="brandSysName" type="text" value="${escH(systemName())}" maxlength="60"></div>
         <div style="flex:0 0 auto;"><button type="button" class="btn btn-primary btn-md" data-on-click="saveSystemName">حفظ الاسم</button></div>
       </div>
+      <label style="margin-top:14px;">العبارة تحت الاسم في صفحة الدخول</label>
+      <div class="row" style="align-items:flex-end;">
+        <div><input id="brandTag1" type="text" style="--fw:380px;" value="${escH(systemTagline(1))}" maxlength="80" placeholder="فارغ = لا تظهر"></div>
+        <div style="flex:0 0 auto;"><button type="button" class="btn btn-primary btn-md" data-on-click="saveSysTagline" data-on-click-args="${qa([1])}" title="تحفظ العبارة الكبيرة تحت اسم النظام">حفظ العبارة</button></div>
+      </div>
+      <label style="margin-top:14px;">سطر الشرح تحت العبارة</label>
+      <div class="row" style="align-items:flex-end;">
+        <div><input id="brandTag2" type="text" style="--fw:580px;" value="${escH(systemTagline(2))}" maxlength="220" placeholder="فارغ = لا يظهر"></div>
+        <div style="flex:0 0 auto;"><button type="button" class="btn btn-primary btn-md" data-on-click="saveSysTagline" data-on-click-args="${qa([2])}" title="يحفظ سطر الشرح الأصغر تحت العبارة">حفظ السطر</button></div>
+      </div>
+      <p class="file-hint" style="margin:4px 0 0;">يظهر الاسم والعبارة والسطر في صفحة الدخول قبل أن يدخل أي مستخدم.</p>
+      <label style="display:flex;align-items:center;gap:8px;margin-top:14px;font-weight:700;">
+        <input type="checkbox" style="width:auto;" ${showAvatars() ? 'checked' : ''} data-on-change="setShowAvatars" data-on-change-args="${qa([QA.c])}" title="يُحفظ فوراً لكل المستخدمين">
+        إظهار صور المستخدمين
+      </label>
+      <p class="file-hint" style="margin:2px 0 0;">في الشريط الجانبي وقائمة المستخدمين ومسار الطلب. يُحفظ فوراً لكل المستخدمين؛ إطفاؤه يخفي الصور ولا يحذفها.</p>
       <label style="margin-top:14px;">${escH(BRAND_SPECS.sysLogo.label)}</label>
       ${brandHintHtml('sysLogo')}
       ${brandImgBlock('sysLogo','', systemLogo())}
@@ -11551,8 +11606,24 @@ async function saveSystemName(){
   if(!v){ showToast('اسم النظام لا يمكن أن يكون فارغاً','error'); return; }
   const r = await db.from('app_settings').upsert({key:'system_name', value:v});
   if(!(await dbCheck(r, 'حفظ اسم النظام'))) return;
-  state.appSettings = state.appSettings||{}; state.appSettings.system_name = v;
+  state.appSettings = state.appSettings||{}; state.appSettings.system_name = v; brandCacheSet('name', v);
   showToast('تم حفظ اسم النظام','success'); render();
+}
+async function saveSysTagline(k){
+  const key = Number(k)===2 ? 'system_tagline2' : 'system_tagline';
+  const v = (document.getElementById(Number(k)===2 ? 'brandTag2' : 'brandTag1').value||'').trim();
+  const r = await db.from('app_settings').upsert({key, value:v});
+  if(!(await dbCheck(r, 'حفظ السطر تحت اسم النظام'))) return;
+  state.appSettings = state.appSettings||{}; state.appSettings[key] = v;
+  brandCacheSet(Number(k)===2 ? 'tagline2' : 'tagline', v || '-');
+  showToast(v ? 'تم الحفظ — يظهر في صفحة الدخول' : 'تم الحفظ — لن يظهر هذا السطر', 'success'); render();
+}
+async function setShowAvatars(on){
+  const v = on ? 'on' : 'off';
+  const r = await db.from('app_settings').upsert({key:'show_avatars', value:v});
+  if(!(await dbCheck(r, 'إظهار صور المستخدمين'))){ render(); return; }
+  state.appSettings = state.appSettings||{}; state.appSettings.show_avatars = v;
+  showToast(on ? 'صور المستخدمين ظاهرة' : 'صور المستخدمين مخفية في النظام كله', 'success'); render();
 }
 async function saveBrandCompanyName(){
   const v = (document.getElementById('brandCoName').value||'').trim();
@@ -12372,7 +12443,8 @@ function renderLogin(app){
     <div class="login-hero">
       ${systemLogo() ? `<img class="lh-logo" src="${escH(systemLogo())}" alt="">` : ''}
       <div class="lh-name">${escH(systemName())}</div>
-      <div class="lh-tag">طلبات الصرف والاعتمادات والعهد والإيرادات — مسار واحد واضح، كل خطوة فيه موثّقة ومراقَبة</div>
+      ${systemTagline(1) ? `<div class="lh-tag">${escH(systemTagline(1))}</div>` : ''}
+      ${systemTagline(2) ? `<div class="lh-tag2">${escH(systemTagline(2))}</div>` : ''}
     </div>
     <h1>تسجيل الدخول</h1>
     <p class="sub">أدخل رقم الهاتف وكلمة المرور الخاصة بحسابك.</p>
@@ -12731,9 +12803,9 @@ function renderDashboard(app){
     ${(()=>{ // سطر المجموع: يتبع كل اختيار (الفترة، طلباتي، اللون)
       const n = displayList.length, sum = displayList.reduce((a,r)=>a+Number(r.totalAmount||0),0);
       const paid = displayList.filter(r=>r.status==='completed' && !r.isCancelled).reduce((a,r)=>a+Number(r.totalAmount||0),0);
-      const cnt = n===0 ? 'لا طلبات' : n===1 ? 'طلب واحد' : n===2 ? 'طلبان' : n<=10 ? n+' طلبات' : n.toLocaleString('en')+' طلباً';
-      const tail = n===0 ? '' : ` · مجموع مبالغها <b>${fmtKWDHtml(sum)} د.ك</b>` + (paid>0 && Math.abs(paid-sum)>0.0005 ? ` · منها تم صرفه <b>${fmtKWDHtml(paid)} د.ك</b>` : paid>0 ? ' · كلها مصروفة' : '');
-      return `<div class="dash-sum no-print">المعروض: <b>${cnt}</b>${tail}</div>`; })()}
+      // ثلاث قيم متجاورة، عنوان كل قيمة فوقها: أوضح في القراءة من جملة واحدة طويلة
+      const tile = (l, v) => `<div class="ds-item"><div class="ds-l">${l}</div><div class="ds-v">${v}</div></div>`;
+      return `<div class="dash-sum no-print">${tile('عدد الطلبات', n.toLocaleString('en'))}${tile('إجمالي المبالغ', fmtKWDHtml(sum)+' <span class="ds-u">د.ك</span>')}${tile('تم صرفه', fmtKWDHtml(paid)+' <span class="ds-u">د.ك</span>')}</div>`; })()}
   `;
 
   const statCards = `
@@ -13263,8 +13335,16 @@ async function loadAvatars(){
     (r.data||[]).forEach(x=>{ if(x.avatar_data) state.avatars[x.id] = x.avatar_data; });
   }catch(e){ state.avatarReady = false; state.avatars = {}; }
 }
+// صور المستخدمين تظهر ما لم يُطفئها مدير النظام (لوحة التحكم ← الهوية ← «إظهار صور المستخدمين»)
+function showAvatars(){ return ((state.appSettings||{}).show_avatars||'on') !== 'off'; }
+function avSrc(uid){ return (uid && showAvatars() && (state.avatars||{})[uid]) || ''; }
+// دائرة الخطوة في المسار: صورة المعتمِد داخلها بإطار بلون حالة الخطوة، أو الرقم إن لم تكن له صورة
+function stepDotHtml(uid, label){
+  const src = avSrc(uid);
+  return src ? `<div class="dot dot-av"><img src="${escH(src)}" alt=""></div>` : `<div class="dot">${label}</div>`;
+}
 function avatarHtml(uid, name, cls){
-  const src = (state.avatars||{})[uid];
+  const src = avSrc(uid);
   return src ? `<img class="${cls||'u-av'}" src="${escH(src)}" alt="">` : `<span class="${cls||'u-av'} u-av-l">${escH((name||'?').trim().charAt(0))}</span>`;
 }
 // تُقصّ مربعة من الوسط وتُصغَّر إلى ١٦٠ بكسل قبل الرفع (بضعة كيلوبايت)
@@ -13300,14 +13380,15 @@ async function removeUserAvatar(uid){
 // قسم الصورة في «حسابي» وفي تعديل المستخدم
 function avatarEditorHtml(u){
   const has = !!(state.avatars||{})[u.id];
+  const src = (state.avatars||{})[u.id];   // صاحب الصورة يراها هنا ولو أُخفيت الصور في النظام
   return `<div class="av-edit">
-    ${avatarHtml(u.id, u.name, 'u-av u-av-lg')}
+    ${src ? `<img class="u-av u-av-lg" src="${escH(src)}" alt="">` : `<span class="u-av u-av-lg u-av-l">${escH((u.name||'?').trim().charAt(0))}</span>`}
     <div>
       <div class="av-btns">
         <label class="btn btn-ghost btn-sm av-pick">${has ? 'تغيير الصورة' : 'إضافة صورة'}<input type="file" accept="image/*" hidden data-on-change="setUserAvatar" data-on-change-args="${qa([u.id, QA.t])}"></label>
         ${has ? `<button type="button" class="btn btn-reject btn-sm" data-on-click="removeUserAvatar" data-on-click-args="${qa([u.id])}">حذف الصورة</button>` : ''}
       </div>
-      <div class="file-hint" style="margin-top:4px;">${state.avatarReady ? 'تُقصّ مربعة من وسطها وتُصغَّر تلقائياً. تظهر بجانب الاسم في الشريط الجانبي وقائمة المستخدمين ومسار الطلب.' : 'تُفعَّل بعد تحديث قاعدة البيانات.'}</div>
+      <div class="file-hint" style="margin-top:4px;">${!state.avatarReady ? 'تُفعَّل بعد تحديث قاعدة البيانات.' : showAvatars() ? 'تُقصّ مربعة من وسطها وتُصغَّر تلقائياً. تظهر بجانب الاسم في الشريط الجانبي وقائمة المستخدمين، وداخل دائرة خطوتك في مسار الطلب.' : 'صور المستخدمين مخفية حالياً في النظام كله بإعداد من مدير النظام؛ تُحفظ صورتك وتظهر حين تُفعَّل.'}</div>
     </div>
   </div>`;
 }
@@ -13452,7 +13533,7 @@ function renderNewCustody(app){
         <div class="cf-full">
           <label for="cusPurpose">غرض العهدة <span class="req-star">*</span></label>
           <input id="cusPurpose" type="text" maxlength="200" value="${escH(k.purpose||'')}" placeholder="مثال: مصروفات تجهيز معرض الكتاب">
-          <div class="cf-hint">يصير عنوان الطلب، ويُكتب في سند العهدة.</div>
+          <div class="cf-hint">يصير عنوان الطلب، ويُكتب في ورقة «طلب صرف عهدة».</div>
         </div>
       </div>
 
@@ -13613,65 +13694,103 @@ async function confirmCustodyReceipt(id){
   return true;
 }
 
-// شريط المراحل التسع: الأربع الأولى من محرك الطلبات، والخمس التالية من العهدة
-function custodyStepperHtml(req, kc){
+// أين وصل طلب العهدة (بلغة صاحبها): يُكتب في خطوة «طلب العهدة» أو «الصرف» في صفحة العهدة، وفي شريط صفحة الطلب
+function custodyReqWhere(req){
+  if(!req) return '';
+  if(req.isCancelled) return 'أُلغي الطلب';
+  if(req.status==='rejected') return 'رُفض — بانتظار تعديل منشئه';
+  if(isUnderReview(req)) return 'قيد مراجعة منشئه قبل الإرسال';
+  if(req.status==='pending_decision'){
+    const cur = currentDecisionStep(req); const u = cur ? userById(cur.approverId) : null;
+    return 'قيد الاعتماد' + (u ? ' عند ' + u.name : '');
+  }
+  return {pending_transfer_request:'عند المحاسب (طلب التحويل)', pending_transfer_approval:'بانتظار توقيع المدير المالي', pending_disbursement:'بانتظار تنفيذ الصرف', completed:'صُرفت'}[req.status] || '';
+}
+// مسار حياة العهدة (في صفحة العهدة): طلب العهدة ← الصرف ← الاستلام ← تسجيل المصروفات ← طلب الإقفال ← اعتماد الإقفال ← تسوية الباقي
+// مسار اعتماد الطلب نفسه (المعتمدون بأسمائهم) يبقى في صفحة الطلب كأي طلب صرف
+const CUSTODY_TAIL_ST = ['pending_transfer_request','pending_transfer_approval','pending_disbursement'];
+function custodyLifeStepperHtml(req, kc){
   const H = req.history || [];
-  const fromHist = key => { const h = H.slice().reverse().find(x=>x.step===key && (x.action==='اعتماد' || x.action==='تم الصرف')); return h ? {name:h.actor, time:h.time} : null; };
+  const hName = h => h ? {name:h.actor, time:h.time, uid:h.userId} : null;
   const appr = (req.approvalSteps||[]).filter(s=>s.status==='approved').sort((a,b)=>a.sequenceOrder-b.sequenceOrder);
   const apprNames = appr.map(s=>(userById(s.approverId)||{}).name || '').filter(Boolean);
   const lastAppr = appr.length ? H.slice().reverse().find(h=>h.action==='اعتماد' && h.userId===appr[appr.length-1].approverId) : null;
+  const paidH = H.slice().reverse().find(h=>h.step==='pending_disbursement' && h.action==='تم الصرف');
   const rcpt = H.find(h=>h.step==='custody_receipt');
+  const holder = userById(kc.holderId), hn = holder ? holder.name : '';
+  const where = custodyReqWhere(req);
+  const ks = kc.status;
+  // أين العهدة الآن
+  let idx, bad = -1, badNote = '';
+  if(req.isCancelled || ks==='cancelled'){ idx = req.status==='completed' ? 2 : (CUSTODY_TAIL_ST.includes(req.status) ? 1 : 0); bad = idx; badNote = '✕ ملغاة'; }
+  else if(req.status==='rejected'){ idx = 0; bad = 0; badNote = '✕ رُفضت — بانتظار التعديل'; }
+  else if(req.status!=='completed') idx = CUSTODY_TAIL_ST.includes(req.status) ? 1 : 0;
+  else idx = {awaiting_receipt:2, open:3, returned:3, close_requested:5, pending_sign:5, closed:7}[ks] ?? 2;
   const stages = [
-    {label:'طلب العهدة', info:{name:(req.createdBy||'') + (apprNames.length ? ' · اعتمد: ' + apprNames.join('، ') : ''), time: lastAppr ? lastAppr.time : ((H[0]||{}).time || '')}},
-    {label:'موافقة المحاسب', info:fromHist('pending_transfer_request')},
-    {label:'توقيع سند الصرف', info:fromHist('pending_transfer_approval')},
-    {label:'تنفيذ الصرف', info:fromHist('pending_disbursement')},
-    {label:'تأكيد الاستلام', info: rcpt ? {name:rcpt.actor, time:rcpt.time} : null},
-    {label:'تسجيل المصروفات', info:null},
-    {label:'طلب الإقفال', info:null},
-    {label:'اعتماد الإقفال', info:null},
-    {label:'توقيع الإدارة', info:null}
+    {label:'طلب العهدة', done: lastAppr ? {name:'اعتمدها: ' + apprNames.join('، '), time:lastAppr.time, uid:lastAppr.userId} : {name:'أنشأها: ' + (req.createdBy||''), time:(H[0]||{}).time||'', uid:req.createdById},
+      cur: {name: where, time:''}},
+    {label:'الصرف', done: hName(paidH), cur:{name: where, time:''}},
+    {label:'الاستلام', done: rcpt ? {name:rcpt.actor, time:rcpt.time, uid:kc.holderId} : null, cur:{name:'بانتظار تأكيد ' + hn, time:''}},
+    {label:'تسجيل المصروفات', done:null, cur:{name: ks==='returned' ? 'أُعيدت للتصحيح' : 'في المرحلة الثانية', time:''}},
+    {label:'طلب الإقفال', done:null, cur:null},
+    {label:'اعتماد الإقفال', done:null, cur:{name: ks==='pending_sign' ? 'بانتظار توقيع الإدارة' : 'عند المحاسب', time:''}},
+    {label:'تسوية الباقي', done:null, cur:null}
   ];
-  const STAGE_OF = {pending_decision:0, pending_transfer_request:1, pending_transfer_approval:2, pending_disbursement:3};
-  const ks = kc ? kc.status : 'requested';
-  let idx, rejAt = -1;
-  if(req.status==='rejected'){
-    const rj = H.slice().reverse().find(h=>h.action==='رفض الطلب');
-    rejAt = rj && STAGE_OF[rj.step]!==undefined ? STAGE_OF[rj.step] : 0;
-    idx = rejAt;
-  } else if(req.status==='completed'){
-    idx = {awaiting_receipt:4, open:5, returned:5, close_requested:6, pending_sign:7, closed:9}[ks];
-    if(idx===undefined) idx = 4;
-  } else idx = STAGE_OF[req.status]!==undefined ? STAGE_OF[req.status] : 0;
   return stages.map((d,i)=>{
-    // ما لم تبلغه المرحلة لا يُعرض فيه اسم (ولو بقي في السجل من دورة قبل الرفض والتعديل)
-    let cls = 'step', info = (i<idx || i===0) ? d.info : null;
-    if(req.isCancelled){ if(i<idx) cls += ' done'; }
-    else if(i===rejAt){ cls += ' rejected'; info = {name:'✕ مرفوضة', time:'', rejected:true}; }
-    else if(i<idx) cls += ' done';
-    else if(i===idx) cls += ' current';
-    return `<div class="${cls}"><div class="dot">${i+1}</div><p>${escH(d.label)}</p>${info ? `<span class="step-approver" style="${info.rejected?'color:var(--red);':''}">${escH(info.name)}</span><span class="step-approve-time">${escH(info.time||'')}</span>` : ''}</div>`;
+    let cls = 'step', info = null, uid = null;
+    if(i===bad){ cls += ' rejected'; info = {name:badNote, time:'', rejected:true}; }
+    else if(i<idx){ cls += ' done'; info = d.done; uid = d.done && d.done.uid; }
+    else if(i===idx){ cls += ' current'; info = d.cur; }
+    const dot = (cls.includes('done') && uid) ? stepDotHtml(uid, i+1) : `<div class="dot">${i+1}</div>`;
+    return `<div class="${cls}">${dot}<p>${escH(d.label)}</p>${info && info.name ? `<span class="step-approver" style="${info.rejected?'color:var(--red);':''}">${escH(info.name)}</span><span class="step-approve-time">${escH(info.time||'')}</span>` : ''}</div>`;
   }).join('');
 }
 
-// بطاقة العهدة في صفحة الطلب: صاحبها وحالتها وموعدها، والأرصدة الخمسة، وزر تأكيد الاستلام
-function renderCustodyPanel(req, kc){
+// شريط صغير في صفحة الطلب: أن هذا الطلب عهدة، لمن، وحالتها — وزر «عرض العهدة» في عمود الأزرار
+function custodyStripHtml(req, kc){
   if(!state.custodyReady) return '';
   if(!kc) return `<div class="note-box no-print">⚠ طلب عهدة لا يظهر سجل عهدته — حدّث الصفحة، فإن بقي فراجع مدير النظام.</div>`;
-  const holder = userById(kc.holderId), hn = holder ? holder.name : '—';
+  const holder = userById(kc.holderId), hn = holder ? holder.name : '—', isHolder = state.user.id===kc.holderId;
+  const mine = isHolder && kc.status==='awaiting_receipt' && !req.isCancelled;
+  return `<div class="cus-strip no-print${mine ? ' cus-strip-act' : ''}">
+    <span class="cus-title">💼 طلب صرف عهدة</span>
+    <span>صاحبها: <b>${escH(hn)}</b>${isHolder ? ' (أنت)' : ''}</span>
+    ${custodyBadge(kc, req)}
+    ${mine ? '<span><b>صُرفت لك — اضغط «عرض العهدة» وأكّد استلامك.</b></span>' : '<span>حياة العهدة وأرصدتها في صفحتها: «عرض العهدة».</span>'}
+  </div>`;
+}
+
+function openCustody(id){
+  const k = (state.custodies||[]).find(x=>x.id===Number(id));
+  if(!k){ showToast('العهدة غير موجودة — حدّث الصفحة', 'error'); return; }
+  state.activeCustodyId = k.id; state.view = 'custody'; render(); window.scrollTo(0,0);
+}
+function openCustodyOfRequest(reqId){
+  const k = (state.custodies||[]).find(x=>x.requestId===reqId);
+  if(k) openCustody(k.id); else showToast('سجل العهدة غير ظاهر — حدّث الصفحة', 'error');
+}
+
+// صفحة العهدة: مسار حياتها، صاحبها وموعدها، الأرصدة الخمسة، وزر تأكيد الاستلام
+function renderCustodyPage(app){
+  const kc = (state.custodies||[]).find(x=>x.id===state.activeCustodyId);
+  const req = kc ? state.requests.find(r=>r.id===kc.requestId) : null;
+  if(!kc || !req){ app.innerHTML = `<h1>العهدة</h1><div class="empty">العهدة غير موجودة أو لا تملك صلاحية عرضها.</div><div class="actions-row"><button class="btn btn-ghost btn-md" data-on-click="openCustodyList">عهدي</button></div>`; return; }
+  const holder = userById(kc.holderId), hn = holder ? holder.name : '—', isHolder = state.user.id===kc.holderId;
   const V = kc.amount, C = kc.carriedIn, R = 0, E = 0, B = Math.round((V + C + R - E)*1000)/1000;
   const card = (lbl, v, sub) => `<div class="cus-card${v<0 ? ' neg' : ''}${lbl==='المتبقي' ? ' main' : ''}"><div class="cus-card-l">${lbl}</div><div class="cus-card-v">${cusAmtHtml(v)} <span class="cus-unit">د.ك</span></div>${sub ? `<div class="cus-card-s">${sub}</div>` : ''}</div>`;
-  const isHolder = state.user.id===kc.holderId;
+  const bi = (state.budgetItems||[]).find(b=>b.id===kc.budgetItemId);
   let act = '';
-  if(kc.status==='awaiting_receipt'){
+  if(req.isCancelled || kc.status==='cancelled'){
+    act = `<div class="why-line">العهدة ملغاة مع طلبها.</div>`;
+  } else if(kc.status==='awaiting_receipt'){
     act = isHolder
       ? `<div class="actions-row no-print" data-bar-actions><button class="btn btn-approve btn-lg" data-on-click="confirmCustodyReceipt" data-on-click-args="${qa([kc.id])}">✓ تأكيد استلام العهدة</button></div>
          <div class="why-line" style="color:var(--text);">صُرفت العهدة باسمك. أكّد استلامك المبلغ لتصبح مفتوحة وتبدأ تسجيل مصروفاتها.</div>`
       : `<div class="actions-row no-print no-bar"><button class="btn btn-approve btn-lg" disabled title="التأكيد لصاحب العهدة وحده">✓ تأكيد استلام العهدة</button></div>
          <div class="why-line">بانتظار تأكيد الاستلام من صاحب العهدة «${escH(hn)}» وحده.</div>`;
-  } else if(kc.status==='requested' && !req.isCancelled){
+  } else if(kc.status==='requested'){
     act = `<div class="actions-row no-print no-bar"><button class="btn btn-approve btn-lg" disabled title="يُتاح بعد صرف العهدة">✓ تأكيد استلام العهدة</button></div>
-       <div class="why-line">يُتاح لصاحب العهدة بعد صرفها.</div>`;
+       <div class="why-line">يُتاح لصاحب العهدة بعد صرفها. طلبها الآن: ${escH(custodyReqWhere(req))}.</div>`;
   } else if(['open','returned'].includes(kc.status)){
     act = `<div class="actions-row no-print no-bar">
         <button class="btn btn-ghost btn-md" disabled title="في المرحلة الثانية من نظام العهدة">إضافة مصروف</button>
@@ -13680,23 +13799,49 @@ function renderCustodyPanel(req, kc){
       </div>
       <div class="why-line">تسجيل المصروفات والمقبوضات وطلب الإقفال: في المرحلة الثانية من نظام العهدة.</div>`;
   }
-  return `<div class="cus-panel">
-    <div class="cus-head">
-      <span class="cus-title">💼 عهدة</span>
-      ${custodyBadge(kc, req)}
-      <span>صاحبها: <b>${escH(hn)}</b>${isHolder ? ' (أنت)' : ''}</span>
-      <span>موعد الإقفال المتوقع: <b>${kc.dueCloseAt ? fmtDateDMY(kc.dueCloseAt) : '—'}</b></span>
-      ${kc.receivedAt ? `<span>استُلمت: <b>${fmtDateDMY(String(kc.receivedAt).slice(0,10))}</b></span>` : ''}
-    </div>
-    <div class="cus-cards">
-      ${card('المصروف بالسند', V)}
-      ${card('الرصيد المرحّل', C, C ? 'من العهدة السابقة' : 'لا رصيد سابق')}
-      ${card('مقبوضات إضافية', R)}
-      ${card('المصروف', E)}
-      ${card('المتبقي', B, B<0 ? 'حقّ لصاحب العهدة' : 'يُردّ أو يُرحّل عند الإقفال')}
-    </div>
-    ${act}
-  </div>`;
+  const H = req.history || [];
+  app.innerHTML = `
+    <h1>العهدة: ${escH(kc.purpose || req.reason || '')}</h1>
+    <div class="doc${req.isCancelled ? ' doc-cancelled' : ''}">
+      <div class="top-action-bar no-print">
+        <div class="header-actions-flex">
+          <div class="doc-actions-col doc-actions-stack">
+            <button class="btn btn-ghost btn-sm" data-on-click="openRequest" data-on-click-args="${qa([req.id])}" title="طلب صرف العهدة: مسار اعتماده بأسماء المعتمدين، وورقته المطبوعة">عرض الطلب</button>
+          </div>
+          <div class="stepper" style="margin:0;">${custodyLifeStepperHtml(req, kc)}</div>
+        </div>
+      </div>
+      <div class="cus-panel">
+        <div class="cus-head">
+          <span class="cus-title">💼 عهدة</span>
+          ${custodyBadge(kc, req)}
+          <span>صاحبها: <b>${escH(hn)}</b>${isHolder ? ' (أنت)' : ''}</span>
+          <span>الطلب: <b><bdi>${escH(req.number || 'قيد المراجعة')}</bdi></b></span>
+          <span>البند: <b>${escH(bi ? bi.name : '—')}</b></span>
+          <span>موعد الإقفال المتوقع: <b>${kc.dueCloseAt ? fmtDateDMY(kc.dueCloseAt) : '—'}</b></span>
+          ${kc.receivedAt ? `<span>استُلمت: <b>${fmtDateDMY(String(kc.receivedAt).slice(0,10))}</b></span>` : ''}
+        </div>
+        ${kc.purpose ? `<div class="cus-purpose"><b>الغرض:</b> ${escH(kc.purpose)}</div>` : ''}
+        <div class="cus-cards">
+          ${card('المصروف بالسند', V)}
+          ${card('الرصيد المرحّل', C, C ? 'من العهدة السابقة' : 'لا رصيد سابق')}
+          ${card('مقبوضات إضافية', R)}
+          ${card('المصروف', E)}
+          ${card('المتبقي', B, B<0 ? 'حقّ لصاحب العهدة' : 'يُردّ أو يُرحّل عند الإقفال')}
+        </div>
+        ${act}
+      </div>
+      <div class="history no-print">
+        <h2>سجل الطلب والعهدة</h2>
+        ${H.map(h=>`
+          <div class="history-item">
+            <div class="t">${h.time}</div>
+            <div><b>${escH(h.actor)}</b> — ${escH(h.action)} <span style="color:var(--muted);">(${escH(STEP_LABELS[h.step]||h.step)})</span>
+              ${h.note ? `<div style="color:var(--red);margin-top:2px;">${escH(h.note)}</div>` : ''}
+            </div>
+          </div>`).join('')}
+      </div>
+    </div>`;
 }
 
 // صفحة «عهدي»: العهد التي في عهدتي، ثم التي طلبتها لغيري
@@ -13709,7 +13854,7 @@ function renderCustodyList(app){
   const item = k => {
     const req = state.requests.find(r=>r.id===k.requestId);
     const hn = (userById(k.holderId)||{}).name || '';
-    return `<div class="list-item" data-on-click="openRequest" data-on-click-args="${qa([k.requestId])}">
+    return `<div class="list-item" data-on-click="openCustody" data-on-click-args="${qa([k.id])}">
       <div class="li-main">
         <b>${escH(req ? req.reason : (k.purpose || 'عهدة'))} — <bdi>${escH(req && req.number ? req.number : 'قيد المراجعة')}</bdi></b>
         <span>${k.holderId!==me ? 'صاحبها: '+escH(hn)+' · ' : ''}${cusAmtHtml(k.amount)} د.ك · موعد الإقفال: ${k.dueCloseAt ? fmtDateDMY(k.dueCloseAt) : '—'}</span>
@@ -13787,8 +13932,7 @@ function renderDetail(app){
   const creatorName = req.createdBy || (creatorUser && creatorUser.name) || '';
   const creatorTime = (req.history&&req.history[0]&&req.history[0].time) || '';
   const creatorStepHtml = `<div class="step done" style="min-width:80px;">
-    <div class="dot" style="background:var(--primary,#1a56db);font-size:9px;width:26px;height:26px;line-height:26px;">✎</div>
-    ${(state.avatars||{})[req.createdById] ? `<img class="step-av" src="${escH(state.avatars[req.createdById])}" alt="">` : ''}
+    ${avSrc(req.createdById) ? `<div class="dot dot-av" style="background:var(--primary,#1a56db);"><img src="${escH(avSrc(req.createdById))}" alt=""></div>` : `<div class="dot" style="background:var(--primary,#1a56db);font-size:9px;width:26px;height:26px;line-height:26px;">✎</div>`}
     <p style="font-size:10px;color:var(--muted,#888);">منشئ الطلب</p>
     <span class="step-approver">${escH(creatorName)}</span>
     <span class="step-approve-time">${escH(creatorTime)}</span>
@@ -13804,9 +13948,8 @@ function renderDetail(app){
       cls += ' current';
     }
     const info = d.info;
-    // صورة المعتمِد (إن رفع صورته) فوق اسم الخطوة
-    const av = d.uid && (state.avatars||{})[d.uid] ? `<img class="step-av" src="${escH(state.avatars[d.uid])}" alt="">` : '';
-    return `<div class="${cls}"><div class="dot">${i+1}</div>${av}<p>${escH(d.label)}</p>${info ? `<span class="step-approver" style="${info.rejected?'color:var(--red);':''}">${escH(info.name)}</span><span class="step-approve-time">${escH(info.time)}</span>` : ''}</div>`;
+    // صورة المعتمِد (إن رفع صورته) داخل دائرة الخطوة مكان الرقم، فلا تزيد المساحة
+    return `<div class="${cls}">${stepDotHtml(d.uid, i+1)}<p>${escH(d.label)}</p>${info ? `<span class="step-approver" style="${info.rejected?'color:var(--red);':''}">${escH(info.name)}</span><span class="step-approve-time">${escH(info.time)}</span>` : ''}</div>`;
   }).join('');
 
   const canAct = canActOn(req);
@@ -13906,6 +14049,7 @@ function renderDetail(app){
         <div class="header-actions-flex">
           <div class="doc-actions-col doc-actions-stack">
             ${isDocView ? `<button class="btn btn-ghost btn-sm" data-on-click="openPrintPreview" data-on-click-args="${qa([(''+(req.id))])}" title="تعرض الطلب كما سيُطبع، ومنها الطباعة والحفظ PDF">معاينة الطلب</button>` : ''}
+            ${isCus ? `<button class="btn ${kc && kc.status==='awaiting_receipt' && kc.holderId===state.user.id && !req.isCancelled ? 'btn-approve' : 'btn-ghost'} btn-sm" data-on-click="openCustodyOfRequest" data-on-click-args="${qa([req.id])}" ${kc ? '' : 'disabled title="سجل العهدة غير ظاهر — حدّث الصفحة"'} title="صفحة العهدة: مسار حياتها من الصرف إلى الإقفال، وأرصدتها، وتأكيد الاستلام">عرض العهدة</button>` : ''}
             ${(req.createdById===state.user.id && isEditable(req) && !req.isCancelled && !isUnderReview(req)) ? `
               <div class="doc-actions-row" data-bar-actions>
                 <button class="btn btn-ghost btn-sm" data-on-click="editRequest" data-on-click-args="${qa([(''+(req.id))])}">تعديل الطلب</button>
@@ -13915,11 +14059,11 @@ function renderDetail(app){
                 <button class="btn btn-reject btn-sm" data-on-click="deleteRequestCfo" data-on-click-args="${qa([(''+(req.id))])}">إبطال الطلب</button>
               </div>` : '')}
           </div>
-          <div class="stepper${isCus ? ' cus-stepper' : ''}" style="margin:0;">${isCus ? custodyStepperHtml(req, kc) : stepperHtml}</div>
+          <div class="stepper" style="margin:0;">${stepperHtml}</div>
         </div>
       </div>
 
-      ${isCus ? renderCustodyPanel(req, kc) : ''}
+      ${isCus ? custodyStripHtml(req, kc) : ''}
       ${renderAppRequestView(req)}
 
       ${req.requestNotes ? `<div class="note-box no-print" style="white-space:pre-wrap;margin-top:10px;"><b>ملاحظات الطلب (داخلية):</b>\n${escH(req.requestNotes)}</div>` : ''}
