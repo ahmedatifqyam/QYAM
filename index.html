@@ -127,7 +127,8 @@
     border-right:3px solid transparent;white-space:nowrap;position:relative;}
   .nav-item:hover{background:rgba(255,255,255,.08);color:#fff;}
   .nav-item.active{background:rgba(255,255,255,.13);color:#fff;font-weight:600;border-right-color:#D4AF37;}
-  .nav-ico{width:22px;text-align:center;font-size:16px;flex:0 0 22px;}
+  .nav-ico{width:22px;text-align:center;font-size:16px;flex:0 0 22px;display:inline-flex;align-items:center;justify-content:center;}
+  .nav-ico .qi{width:20px;height:20px;}
   .nav-label{overflow:hidden;text-overflow:ellipsis;}
   .nav-count{background:#D4AF37;color:#1B2733;border-radius:10px;font-size:11px;font-weight:700;padding:1px 7px;margin-right:auto;}
   .nav-caret{margin-right:auto;font-size:11px;opacity:.7;}
@@ -202,9 +203,15 @@
   .fb:hover:not(:disabled):not(.on){background:#FAF9F5;}
   @media (max-width:640px){ .fbar .fb,.dash-filt-own .fb{width:calc(50% - 3px);} .dash-filt-own{width:100%;flex-wrap:wrap;} }
   /* «بانتظار قرارك»: يومض ما دام فيه طلبات تنتظرك */
-  .fb.fb-blink{border-right-color:#d97706;animation:fbBlink 1.4s ease-in-out infinite;}
-  @keyframes fbBlink{0%,100%{background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.10);}50%{background:#FDE7C2;box-shadow:0 0 0 3px rgba(217,119,6,.25);}}
-  @media (prefers-reduced-motion:reduce){ .fb.fb-blink{animation:none;background:#FDE7C2;} }
+  /* يضيء ويطفئ كالمصباح: برتقالي ساطع بتوهّج، ثم أبيض */
+  .fb.fb-blink{border-right-color:#d97706;animation:fbFlash 1.2s linear infinite;}
+  .fb.fb-blink .fb-n{color:inherit;}
+  .fb.fb-blink .fb-bx{animation:fbFlashBx 1.2s linear infinite;}
+  @keyframes fbFlash{0%,42%{background:#F59E0B;color:#fff;box-shadow:0 0 0 3px rgba(245,158,11,.35),0 0 16px rgba(245,158,11,.8);}
+                     50%,92%{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.10);}
+                     100%{background:#F59E0B;color:#fff;box-shadow:0 0 0 3px rgba(245,158,11,.35),0 0 16px rgba(245,158,11,.8);}}
+  @keyframes fbFlashBx{0%,42%{background:#fff;color:#d97706;}50%,92%{background:#d97706;color:#fff;}100%{background:#fff;color:#d97706;}}
+  @media (prefers-reduced-motion:reduce){ .fb.fb-blink,.fb.fb-blink .fb-bx{animation:none;} .fb.fb-blink{background:#FDE7C2;} }
   /* سطر المجموع تحت أزرار الفلتر */
   .dash-sum{font-size:14px;font-weight:600;color:var(--ink);margin:-4px 0 12px;}
   .dash-sum b{font-weight:800;}
@@ -235,7 +242,8 @@
   .mtab-btn{flex:1 1 0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
     background:none;border:none;color:#9FC2DB;font-family:inherit;font-size:10.5px;font-weight:600;
     cursor:pointer;position:relative;padding:0;min-width:0;-webkit-tap-highlight-color:transparent;}
-  .mtab-btn .mtab-ico{font-size:19px;line-height:1;}
+  .mtab-btn .mtab-ico{font-size:19px;line-height:1;display:inline-flex;}
+  .mtab-btn .mtab-ico .qi{width:23px;height:23px;}
   .mtab-btn:active{background:rgba(255,255,255,.08);}
   .mtab-btn.active{color:#fff;}
   .mtab-btn.active::before{content:'';position:absolute;top:0;right:22%;left:22%;height:3px;
@@ -1340,6 +1348,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.0.3/qrcode.min.js"></script>
-<script src="app.js?v=6ddf602c35"></script>
+<script src="app.js?v=7a85be6e4e"></script>
 </body>
 </html>

@@ -2491,8 +2491,20 @@ const QI = {
   undo:'<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>',
   back:'<path d="M5 12h14M13 6l6 6-6 6"/>',
   recv:'<path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/>',
-  close:'<path d="M18 6 6 18M6 6l12 12"/>'
+  close:'<path d="M18 6 6 18M6 6l12 12"/>',
+  clip:'<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M8 12h8M8 16h5"/>',
+  case:'<rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>',
+  cash:'<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01" stroke-width="3"/>',
+  repeat:'<path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/>',
+  chart:'<path d="M3 3v18h18"/><path d="M7 16v-4M12 16V8M17 16v-7"/>',
+  sliders:'<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/>',
+  account:'<circle cx="12" cy="12" r="10"/><circle cx="12" cy="10" r="3"/><path d="M6.2 18.8a7 7 0 0 1 11.6 0"/>',
+  help:'<circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01" stroke-width="3"/>',
+  menu:'<path d="M4 6h16M4 12h16M4 18h16"/>',
+  bell:'<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>'
 };
+// رمز من المجموعة إن وُجد باسمه، وإلا يُعرض كما هو (رمز نصي قديم)
+function qiOr(x){ return QI[x] ? qi(x) : escH(x||''); }
 function qi(name, cls){ return QI[name] ? `<svg class="qi${cls ? ' '+cls : ''}" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${QI[name]}</svg>` : ''; }
 // رمز كل زر فعل حسب كلمته: الرمز نفسه للفعل نفسه في كل الصفحات، والكلمة تبقى بجانبه
 const BTN_ICON_EXACT = {'اعتماد':'stamp', 'رفض':'rej', 'رفض لأسباب محاسبية':'rej', 'معاينة الطلب':'eye', 'تحميل PDF':'pdf', 'رجوع':'back',
@@ -2810,16 +2822,16 @@ function navSections(){
   // الإسناد صار تبويباً في «طلبات الصرف» (كان قسماً مستقلاً في الشريط الجانبي)
   const hoN = canSeeHandovers() && typeof hoMyPendingToMeCount==='function' ? hoMyPendingToMeCount() : 0;
   if(canSeeHandovers()) req.push({label:'إسناد المعاملات', count:hoN, views:['handovers'], js:[["openHandovers",[]]]});
-  out.push({key:'req', ico:'📋', label:'طلبات الصرف', count:pend + hoN, pages:req});
+  out.push({key:'req', ico:'clip', label:'طلبات الصرف', count:pend + hoN, pages:req});
   if(state.custodyReady && pageLevel('custody')!=='none'){
     const kN = custodyAwaitingMine().length;
-    out.push({key:'cus', ico:'💼', label:'العهد', count:kN, pages:[
+    out.push({key:'cus', ico:'case', label:'العهد', count:kN, pages:[
       {label:'عهدي', count:kN, views:['custodyList'], js:[["openCustodyList",[]]]},
       {label:'عهدة جديدة', views:['newCustody'], js:[["openNewCustody",[]]]}
     ]});
   }
-  if(canSeeRevenues()) out.push({key:'rev', ico:'💵', label:'الإيرادات', pages:[{label:'الإيرادات', views:['revenues'], js:[["openRevenues",[0]]]}]});
-  if(canSeeRecurring()) out.push({key:'rec', ico:'🔁', label:'القيود الدورية', count:recDueCount(), pages:[{label:'القيود الدورية', views:['recurring'], js:[["openRecurring",[0]]]}]});
+  if(canSeeRevenues()) out.push({key:'rev', ico:'cash', label:'الإيرادات', pages:[{label:'الإيرادات', views:['revenues'], js:[["openRevenues",[0]]]}]});
+  if(canSeeRecurring()) out.push({key:'rec', ico:'repeat', label:'القيود الدورية', count:recDueCount(), pages:[{label:'القيود الدورية', views:['recurring'], js:[["openRecurring",[0]]]}]});
   const rep = [];
   if(canSeeMonitor()) rep.push({label:'لوحة المتابعة', views:['monitor'], js:[["openMonitor",[]]]});
   if(pageLevel('ledger')!=='none') rep.push({label:'دفتر الحركات', views:['ledger'], js:[["#6",[]]]});
@@ -2832,12 +2844,12 @@ function navSections(){
   }
   if(pageLevel('budgetReport')!=='none') rep.push({label:'تقرير الميزانية', views:['budgetReport'], js:[["openBudgetReport",[]]]});
   if(pageLevel('cancelled')!=='none') rep.push({label:'أرشيف الملغاة', views:['cancelledArchive'], js:[["openCancelledArchive",[]]]});
-  if(rep.length) out.push({key:'rep', ico:'📊', label:'المتابعة والتقارير', pages:rep});
-  if(u.role==='admin') out.push({key:'admin', ico:'⚙️', label:'لوحة التحكم', admin:true, pages:[]});
-  else out.push({key:'account', ico:'👤', label:'حسابي', pages:[{label:'حسابي', views:['account'], js:[["#10",[]]]}]});
+  if(rep.length) out.push({key:'rep', ico:'chart', label:'المتابعة والتقارير', pages:rep});
+  if(u.role==='admin') out.push({key:'admin', ico:'sliders', label:'لوحة التحكم', admin:true, pages:[]});
+  else out.push({key:'account', ico:'account', label:'حسابي', pages:[{label:'حسابي', views:['account'], js:[["#10",[]]]}]});
   const help = [{label:'دليل المستخدم', views:['guide'], js:[["#8",[]]]}, {label:'خريطة الموقع', views:['sitemap'], js:[["#9",[]]]}];
   if(canSeeAssistant() && ASSISTANT_WEBHOOK) help.push({label:'المساعد الذكي', views:[], js:[["openAssistant",[]]]});
-  out.push({key:'help', ico:'❓', label:'المساعدة', pages:help});
+  out.push({key:'help', ico:'help', label:'المساعدة', pages:help});
   out.forEach(sec=>{ sec.active = sec.admin ? inAdminArea() : sec.pages.some(pg=>pg.views.includes(v)); });
   return out;
 }
@@ -2886,7 +2898,7 @@ function renderAppNav(){
       ).join('');
       const headJs = collapsed ? [["navPeekOpen",[]]] : navClick([["#11",[]]]);
       return `<div class="nav-group">
-        <div class="nav-item${it.active?' active':''}" title="${escH(it.label)}" ${qon('click', headJs)}><span class="nav-ico">${it.ico}</span><span class="nav-label">${escH(it.label)}</span>${!open && state.secUnread ? `<span class="nav-count">${state.secUnread}</span>` : ''}<span class="nav-caret">${open?'▲':'▼'}</span></div>
+        <div class="nav-item${it.active?' active':''}" title="${escH(it.label)}" ${qon('click', headJs)}><span class="nav-ico">${qiOr(it.ico)}</span><span class="nav-label">${escH(it.label)}</span>${!open && state.secUnread ? `<span class="nav-count">${state.secUnread}</span>` : ''}<span class="nav-caret">${open?'▲':'▼'}</span></div>
         ${open ? `<div class="nav-sub">${sub}</div>` : ''}
       </div>`;
     }
@@ -2898,11 +2910,11 @@ function renderAppNav(){
       const headJs = collapsed ? [["navPeekOpen",[]]] : [["navGroupToggle",[(''+(it.group))]]];
       const totalCount = open ? 0 : it.subs.reduce((n,x)=>n+(x.count||0),0);
       return `<div class="nav-group">
-        <div class="nav-item${it.active?' active':''}" title="${escH(it.label)}" ${qon('click', headJs)}><span class="nav-ico">${it.ico}</span><span class="nav-label">${escH(it.label)}</span>${totalCount?`<span class="nav-count">${totalCount}</span>`:''}<span class="nav-caret">${open?'▲':'▼'}</span></div>
+        <div class="nav-item${it.active?' active':''}" title="${escH(it.label)}" ${qon('click', headJs)}><span class="nav-ico">${qiOr(it.ico)}</span><span class="nav-label">${escH(it.label)}</span>${totalCount?`<span class="nav-count">${totalCount}</span>`:''}<span class="nav-caret">${open?'▲':'▼'}</span></div>
         ${open ? `<div class="nav-sub">${sub}</div>` : ''}
       </div>`;
     }
-    return `<div class="nav-item${it.active?' active':''}" title="${escH(it.label)}" ${qon('click', navClick(it.js))}><span class="nav-ico">${it.ico}</span><span class="nav-label">${escH(it.label)}</span>${it.count?`<span class="nav-count">${it.count}</span>`:''}</div>`;
+    return `<div class="nav-item${it.active?' active':''}" title="${escH(it.label)}" ${qon('click', navClick(it.js))}><span class="nav-ico">${qiOr(it.ico)}</span><span class="nav-label">${escH(it.label)}</span>${it.count?`<span class="nav-count">${it.count}</span>`:''}</div>`;
   };
   nav.innerHTML = `
     <div class="nav-head"><button type="button" class="nav-toggle" ${qon('click', mode==='drawer'?[["closeNavDrawer",[]]]:[["toggleNav",[]]])} title="${mode==='drawer'?'إغلاق':'طيّ/فتح القائمة'}">${mode==='drawer'?'✕':'☰'}</button><span class="nav-title">القائمة</span></div>
@@ -6333,21 +6345,21 @@ function renderMobileTabs(){
   const open = document.body.classList.contains('nav-drawer-open');
   // RTL: أول زرّ في الكود يظهر أقصى اليمين — فالترتيب البصري يمين←يسار كما هو مكتوب هنا
   const items = [
-    {key:'menu',      ico:'☰',  label:'القائمة',  on:open,
+    {key:'menu',      ico:'menu',  label:'القائمة',  on:open,
      act: open ? [["closeNavDrawer",[]]] : [["openNavDrawer",[]]]},
-    {key:'dashboard', ico:'📋', label:'الطلبات',  on:['dashboard','detail'].includes(state.view) && !open,
+    {key:'dashboard', ico:'clip', label:'الطلبات',  on:['dashboard','detail'].includes(state.view) && !open,
      act:[["#13",[]]]},
     (state.user.role==='admin' && !state.impersonatingFromAdmin)
-      ? {key:'viewas', ico:'👁', label:'عرض كمستخدم', on:state.view==='admin' && state.adminSubTab==='impersonate' && !open,
+      ? {key:'viewas', ico:'eye', label:'عرض كمستخدم', on:state.view==='admin' && state.adminSubTab==='impersonate' && !open,
          act:[["#14",[]]]}
-      : {key:'new',       ico:'➕', label:'جديد',     on:['newRequest','newRequestChoice'].includes(state.view) && !open,
+      : {key:'new',       ico:'plus', label:'جديد',     on:['newRequest','newRequestChoice'].includes(state.view) && !open,
          act:[["#15",[]]]},
-    {key:'bell',      ico:'🔔', label:'الإشعارات', on:false, dot:badge,
+    {key:'bell',      ico:'bell', label:'الإشعارات', on:false, dot:badge,
      act:[["#16",[]]]},
   ];
   el.innerHTML = `<div class="mtab-in">${items.map(it=>`
     <button type="button" class="mtab-btn${it.on?' active':''}" ${qon('click', it.act)} aria-label="${escH(it.label)}">
-      <span class="mtab-ico">${it.ico}</span><span>${escH(it.label)}</span>
+      <span class="mtab-ico">${qiOr(it.ico)}</span><span>${escH(it.label)}</span>
       ${it.dot ? `<span class="mtab-dot">${it.dot>99?'99+':it.dot}</span>` : ''}
     </button>`).join('')}</div>`;
 }
