@@ -570,6 +570,7 @@ function dbCompanyToState(c){
     hasCustodyCols: c.custody_max_open!==undefined,
     custodyMaxOpen: c.custody_max_open==null ? 1 : Number(c.custody_max_open),
     custodyDefaultDays: c.custody_default_days==null ? 30 : Number(c.custody_default_days),
+    hasCustodyOver: c.custody_over_mode!==undefined, custodyOverMode: c.custody_over_mode || 'none', custodyOverValue: Number(c.custody_over_value||0), custodyAlertUserId: c.custody_alert_user_id || '',
     custodyReceiptDays: c.custody_receipt_days==null ? 3 : Number(c.custody_receipt_days),
     custodyImgMin: c.custody_img_min==null ? 0 : Number(c.custody_img_min), custodyReviewMode: c.custody_review_mode || 'line', hasCustodyLines: c.custody_img_min!==undefined,
     custodyMaxAmount: c.custody_max_amount==null ? null : Number(c.custody_max_amount),     // فارغ = بلا حد
@@ -2940,7 +2941,10 @@ function navSections(){
     if(finU){
       cpages.push({label:'عهد الشركة المفتوحة', count:nOpenK, views:[], on: v==='custodyList' && ft==='open', js:[["cusFinTab",["open"]]]});
       cpages.push({label:'عهد الشركة المغلقة', count:nClosedK, views:[], on: v==='custodyList' && ft==='closed', js:[["cusFinTab",["closed"]]]});
+      const nBalK = (state.custodyBalances||[]).filter(b=>b.companyId===cidn && b.status==='open').length;
+      cpages.push({label:'المبالغ المعلّقة', count:nBalK, views:[], on: v==='custodyList' && ft==='bal', js:[["cusFinTab",["bal"]]]});
     }
+    if(!finU && state.user && (state.companies.find(c=>c.id===cidn)||{}).custodyAlertUserId===state.user.id) cpages.push({label:'عهد متجاوزة', views:[], on: v==='custodyList' && ft==='over', js:[["cusFinTab",["over"]]]});
     out.push({key:'cus', ico:'case', label:'العهد', count:kN, pages:cpages});
   }
   if(canSeeRevenues()) out.push({key:'rev', ico:'cash', label:'الإيرادات', pages:[{label:'الإيرادات', views:['revenues'], js:[["openRevenues",[0]]]}]});
@@ -3802,10 +3806,11 @@ async function loadBudgetSums(){
   try{
     const r = await db.rpc('qy_budget_figures', {p_company: state.currentCompanyId});
     if(r.error || !r.data) return;
-    const m = {}; r.data.forEach(x=>{ m[x.budget_item_id] = {committed:Number(x.committed)||0, pending:Number(x.pending)||0}; });
+    const m = {}; r.data.forEach(x=>{ m[x.budget_item_id] = {committed:Number(x.committed)||0, pending:Number(x.pending)||0, extra:Number(x.reserved_extra)||0}; });
     state.budgetSums = m;
   }catch(e){}
 }
+const CUSTODY_LIVE_RESERVE = ['awaiting_receipt','open','returned','close_requested','acct_review','pending_sign'];
 const COMMITTED_STATUSES = ['pending_transfer_request','pending_transfer_approval',
                             'pending_disbursement','pending_accountant','pending_cfo'];
 function isPendingDecisionStatus(s){ return s==='pending_decision' || OLD_DECISION_STATUSES.includes(s); }
@@ -3838,8 +3843,19 @@ function computeBudgetItemFigures(itemId){
   // غير المالية لا يرى كل طلبات الشركة؛ المجاميع تأتيه من الخادم (أرقام فقط) فلا يظهر له متاح أكبر من الحقيقي
   const srv = !isFinanceUser() && state.budgetSums ? state.budgetSums[itemId] : null;
   if(!isFinanceUser() && state.budgetSums){ committed = Math.max(committed, srv ? srv.committed : 0); pending = Math.max(pending, srv ? srv.pending : 0); }
+  // محجوز العهد: المبلغ المصروف للعهدة المفتوحة محجوز حتى إقفالها (ضمن المصروف في الدفتر)، ويُحجز فوقه المرحَّل والصرف الزائد فور تسجيله
+  let reservedCustody = 0, reservedExtra = 0;
+  if(isFinanceUser()){
+    (state.custodies||[]).filter(k=>k.budgetItemId===itemId && CUSTODY_LIVE_RESERVE.includes(k.status)).forEach(k=>{
+      const sm = custodySums(k);
+      reservedCustody += Number(k.amount)||0;
+      reservedExtra += (Number(k.carriedIn)||0) + Math.max(0, -sm.B);
+    });
+  } else if(srv){ reservedExtra = srv.extra||0; }
+  reservedExtra = Math.round(reservedExtra*1000)/1000;
+  committed += reservedExtra;      // المرحَّل والصرف الزائد يُحجزان من رصيد البند كالمرتبط
 
-  return { revenue: totalRev, profit, spent, committed, pending,
+  return { revenue: totalRev, profit, spent, committed, pending, reservedCustody, reservedExtra,
            available: totalRev - profit - spent - committed - pending };
 }
 
@@ -3924,6 +3940,7 @@ function onBudgetItemSelectChange(){
   if(f){
     if(f.spent>0)     bits.push(`مصروف فعلاً ${fmtKWD(f.spent,{noUnit:true})}`);
     if(f.committed>0) bits.push(`مرتبط ${fmtKWD(f.committed,{noUnit:true})}`);
+    if(f.reservedCustody>0 || f.reservedExtra>0) bits.push(`محجوز في العهد المفتوحة ${fmtKWD(f.reservedCustody+f.reservedExtra,{noUnit:true})}`);
     if(f.pending>0)   bits.push(`قيد الطلب ${fmtKWD(f.pending,{noUnit:true})}`);
   }
   box.innerHTML = `المتاح لطلب جديد: ${fmtKWD(bal)}`
@@ -10530,6 +10547,21 @@ function renderCompanyEditForm(){
             </select>
             <div class="file-hint" style="margin-top:3px;">حسب رأي محاسب الشركة.</div>
           </div>` : ''}
+          ${c.hasCustodyOver ? `<div>
+            <label>حدّ الصرف فوق العهدة</label>
+            <select id="editCoCusOverMode">
+              <option value="none" ${c.custodyOverMode==='none'?'selected':''}>بلا حد (تحذير فقط)</option>
+              <option value="percent" ${c.custodyOverMode==='percent'?'selected':''}>نسبة من مبلغ العهدة (%)</option>
+              <option value="amount" ${c.custodyOverMode==='amount'?'selected':''}>مبلغ ثابت (د.ك)</option>
+            </select>
+            <input id="editCoCusOverVal" type="number" min="0" step="0.001" dir="ltr" value="${c.custodyOverValue||0}" style="direction:ltr;text-align:center;margin-top:6px;">
+            <div class="file-hint" style="margin-top:3px;">ما زاد عليه لا يُسجَّل على العهدة، ويلزم طلب صرف فعلي. يمكن تخصيصه لعهدة واحدة من صفحتها.</div>
+          </div>
+          <div>
+            <label>من يصله تنبيه الصرف الزائد (مع المحاسب)</label>
+            <select id="editCoCusAlert"><option value="">— لا أحد —</option>${companyUsers(c.id).slice().sort((a,b)=>String(a.name).localeCompare(String(b.name),'ar')).map(u=>`<option value="${escH(u.id)}" ${c.custodyAlertUserId===u.id?'selected':''}>${escH(u.name)}</option>`).join('')}</select>
+            <div class="file-hint" style="margin-top:3px;">مثلاً سكرتير الشركة؛ يرى العهد المتجاوزة في «عهد الشركة المفتوحة».</div>
+          </div>` : ''}
         </div>
       </div>` : ''}
       ${c.logoData ? `<div class="file-hint">✓ يوجد شعار/ترويسة محفوظة</div>` : ''}
@@ -10656,6 +10688,13 @@ async function saveCompanyEdit(){
       updates.custody_review_mode = (document.getElementById('editCoCusReview')||{}).value==='whole' ? 'whole' : 'line';
     }
   }
+  if(c.hasCustodyOver){
+    const om = (document.getElementById('editCoCusOverMode')||{}).value;
+    updates.custody_over_mode = ['none','percent','amount'].includes(om) ? om : 'none';
+    const ov = Math.round(parseFloat((document.getElementById('editCoCusOverVal')||{}).value)*1000)/1000;
+    updates.custody_over_value = isFinite(ov) && ov>=0 ? ov : 0;
+    updates.custody_alert_user_id = (document.getElementById('editCoCusAlert')||{}).value || null;
+  }
   if(c.hasCustodyLimits){
     // فارغ أو صفر = بلا حد
     const amtOrNull = id => { const raw = String((document.getElementById(id)||{}).value||'').trim(); const v = Math.round(parseFloat(raw)*1000)/1000; return raw && v>0 ? v : null; };
@@ -10678,6 +10717,7 @@ async function saveCompanyEdit(){
   if(c.hasCustodyCols){ c.custodyMaxOpen = updates.custody_max_open; c.custodyDefaultDays = updates.custody_default_days; c.custodyReceiptDays = updates.custody_receipt_days; }
   if(c.hasCustodyLines){ c.custodyImgMin = updates.custody_img_min; c.custodyReviewMode = updates.custody_review_mode; }
   if(c.hasCustodyLimits){ c.custodyMaxAmount = updates.custody_max_amount; c.custodyMaxTotal = updates.custody_max_total; }
+  if(c.hasCustodyOver){ c.custodyOverMode = updates.custody_over_mode; c.custodyOverValue = updates.custody_over_value; c.custodyAlertUserId = updates.custody_alert_user_id || ''; }
   if(c.hasCustodyPath) c.custodyPathMode = updates.custody_path_mode;
   if(updates.logo_data) c.logoData = updates.logo_data;
   state.editingCompanyId = null;
@@ -13571,7 +13611,7 @@ const CUSTODY_LIVE = ['requested','awaiting_receipt','open','close_requested','a
 const CUS_ACTION = {return_cash:'يُرجَع الباقي نقداً', carry:'يُرحَّل الباقي رصيداً معلّقاً', pay_diff:'يُصرف الفرق لصاحب العهدة', carry_debt:'يُرحَّل الفرق ديناً', none:'لا باقي'};
 function mapCustodyRow(k){
   return {id:Number(k.id), requestId:k.request_id, companyId:k.company_id, holderId:k.holder_id, budgetItemId:k.budget_item_id||null,
-    amount:Number(k.amount||0), purpose:k.purpose||'', carriedIn:Number(k.carried_in||0), carriedFromId:k.carried_from_id||null,
+    amount:Number(k.amount||0), purpose:k.purpose||'', carriedIn:Number(k.carried_in||0), overMode:k.over_mode||null, overValue:k.over_value==null?null:Number(k.over_value), carriedFromId:k.carried_from_id||null,
     status:k.status, dueCloseAt:k.due_close_at||'', receivedAt:k.received_at||null, remainingAction:k.remaining_action||'',
     remainingAmount:k.remaining_amount==null ? null : Number(k.remaining_amount), settlementNo:k.settlement_no||'',
     reviewedById:k.reviewed_by_id||null, signedById:k.signed_by_id||null, closedAt:k.closed_at||null,
@@ -13827,6 +13867,16 @@ async function submitCustody(){
   if(!editing && custodyOpenCount(holder.id, state.currentCompanyId) >= lim){
     fieldErr('#cusHolder', `لدى «${holder.name}» عهد مفتوحة بلغت الحد الأقصى في هذه الشركة (${lim})`); return false;
   }
+  if(!editing){
+    const hb = (state.custodyBalances||[]).filter(b=>b.holderId===holder.id && b.companyId===state.currentCompanyId && b.status==='open');
+    const tb = Math.round(hb.reduce((a,b)=>a+b.amount,0)*1000)/1000;
+    if(tb!==0){
+      const t = fmtKWDPlain(Math.abs(tb)).replace(/[\u2066\u2069]/g,'');
+      const msg = tb>0 ? `معك ${t} د.ك باقٍ من عهدة سابقة.\nسيدخل عهدتك الجديدة، فيكون المتاح للصرف ${fmtKWDPlain(amount+tb).replace(/[\u2066\u2069]/g,'')} د.ك (المطلوب ${fmtKWDPlain(amount).replace(/[\u2066\u2069]/g,'')} + المعلّق).`
+                     : `لك ${t} د.ك من عهدة سابقة (صرفتها زيادة).\nسيُخصم من عهدتك الجديدة، فيبقى المتاح للصرف ${fmtKWDPlain(amount+tb).replace(/[\u2066\u2069]/g,'')} د.ك من المطلوب ${fmtKWDPlain(amount).replace(/[\u2066\u2069]/g,'')}.`;
+      if(!confirm(msg + '\n\nموافق = أضفته ضمن المبلغ وأرسل الطلب.\nإلغاء = أرجع لأعدّل المبلغ.')){ fieldErr('#cusAmount', 'عدّل المبلغ بحسب رصيدك المعلّق ثم أرسل'); return false; }
+    }
+  }
   if(co.custodyMaxAmount!=null && amount > co.custodyMaxAmount){
     fieldErr('#cusAmount', `المبلغ أكبر من الحد الأقصى للعهدة الواحدة (${fmtKWDPlain(co.custodyMaxAmount).replace(/[\u2066\u2069]/g,'')})`); return false;
   }
@@ -14011,8 +14061,8 @@ function custodyStageActHtml(kc){
   if(kc.status==='acct_review'){
     if(!cusIsFinance(kc) || me===kc.holderId) return `<div class="why-line" style="color:var(--text);">راجعها «${escH(rv ? rv.name : '—')}»، وهي الآن عند المحاسب.</div>`;
     const mode = (state.companies.find(c=>c.id===kc.companyId)||{}).custodyReviewMode||'line';
-    const opts = B>0 ? [['return_cash','إرجاع الباقي نقداً للشركة'],['carry','ترحيله رصيداً معلّقاً باسمه (يدخل عهدته التالية)']]
-               : B<0 ? [['pay_diff','صرف الفرق لصاحب العهدة'],['carry_debt','ترحيله ديناً على عهدته التالية']] : [];
+    const opts = B>0 ? [['return_cash','إرجاع الباقي نقداً للشركة'],['carry','تعليقه باسمه للقرار (استرجاع نقدي أو يدخل عهدته التالية)']]
+               : B<0 ? [['pay_diff','صرف الفرق لصاحب العهدة'],['carry_debt','تعليق المستحق له للقرار (صرف أو يُضاف لعهدته التالية)']] : [];
     return `<div class="card cus-line-form no-print">
       <h2 style="margin:0 0 6px;font-size:16px;">قرار المحاسب</h2>
       <p class="sub" style="margin:0 0 8px;">${mode==='line' ? 'ارفض ما يحتاج تصحيحاً فقط (يُقبل الباقي باعتمادك)، ثم اعتمد الإقفال أو أرجعها للتصحيح.' : 'إعداد الشركة: تُقبل العهدة كلها أو تُرجَع.'} الباقي: <b>${cusAmtHtml(B)} د.ك</b>.</p>
@@ -14357,6 +14407,14 @@ async function cusImageData(file){
   if(file.type==='application/pdf'){ if(file.size > 2000000) throw new Error('ملف PDF أكبر من ٢ ميجابايت'); return await readFileAsDataURL(file); }
   const r = await resizeImageFile(file, 1400, 1400); return r.dataUrl;
 }
+async function cusOverConfirm(over, itemName, k){
+  const co = state.companies.find(c=>c.id===k.companyId) || {};
+  let lim = null; const mode = k.overMode || co.custodyOverMode || 'none', val = k.overValue!=null ? k.overValue : co.custodyOverValue;
+  if(mode==='percent') lim = Math.round(k.amount*val/100*1000)/1000; else if(mode==='amount') lim = val;
+  return confirm('⚠️ تنبيه: صرف زائد عن العهدة\n\nستكون قد صرفت ' + fmtKWDPlain(over).replace(/[\u2066\u2069]/g,'') + ' د.ك زيادة عن عهدتك المفتوحة لبند «' + itemName + '».'
+    + (lim!=null ? '\nالحد المسموح فوق العهدة: ' + fmtKWDPlain(lim).replace(/[\u2066\u2069]/g,'') + ' د.ك.' : '')
+    + '\nسيُحجز الزائد من رصيد البند ويُنبَّه المحاسب.\n\nهل أنت متأكد من صرف المبلغ من عهدة بند «' + itemName + '»؟');
+}
 async function saveCusLine(){
   let f = state.cusLine;
   if(!f && state.cusDocs){
@@ -14370,6 +14428,11 @@ async function saveCusLine(){
   if(!(amt>0)){ fieldErr('#cusLineAmt', 'اكتب المبلغ'); return false; }
   if(!desc){ fieldErr('#cusLineDesc', 'اكتب الوصف'); return false; }
   const k = (state.custodies||[]).find(x=>x.id===cid), co = state.companies.find(c=>c.id===(k||{}).companyId) || {};
+  if(k && f.kind!=='receipt' && ((document.getElementById('cusLineKind')||{}).value||f.kind)==='expense'){
+    const old = f.id ? ((custodyLinesOf(k).find(x=>x.id===f.id)||{}).amount||0) : 0, sm0 = custodySums(k);
+    const B2 = Math.round((sm0.B + (old - amt))*1000)/1000, bi = (state.budgetItems||[]).find(b=>b.id===k.budgetItemId);
+    if(B2 < 0 && !(await cusOverConfirm(-B2, bi ? bi.name : '', k))) return false;
+  }
   const l = f.id ? (state.custodyLines||[]).find(x=>x.id===f.id) : null;
   const file = ((document.getElementById('cusLineImg')||{}).files||[])[0];
   const cp = (state.cusDocs && state.cusPics) ? state.cusPics : null;
@@ -14525,7 +14588,11 @@ function renderCustodyPage(app){
 }
 
 // للمالية: كل عهد الشركة غير المقفلة ومرحلتها ومنذ متى، والأرصدة المعلّقة مع «تسوية نقداً»
-function cusFinTab(t){ state.cusFinTab = t; state.view = 'custodyList'; render(); window.scrollTo(0,0); }
+async function cusFinTab(t){
+  state.cusFinTab = t; state.view = 'custodyList';
+  if(t==='over'){ try{ const r = await db.rpc('qy_custody_over_list', {p_company: state.currentCompanyId}); state.cusOverList = (r && !r.error && r.data) ? r.data : []; }catch(e){ state.cusOverList = []; } }
+  render(); window.scrollTo(0,0);
+}
 function custodyFinanceOverviewHtml(cid){
   if(!state.user || !['accountant','cfo','admin'].includes(state.user.role)) return '';
   const LIVE = ['open','returned','close_requested','acct_review','pending_sign','awaiting_receipt'].concat(state.user.role==='admin' ? ['requested'] : []);
@@ -14534,7 +14601,13 @@ function custodyFinanceOverviewHtml(cid){
   const days = d => d ? Math.max(0, Math.floor((Date.now()-new Date(d).getTime())/86400000)) : 0;
   const bal = (state.custodyBalances||[]).filter(b=>b.companyId===cid && b.status==='open');
   if(!live.length && !bal.length && !closed.length) return '';
-  const tab = state.cusFinTab==='closed' ? 'closed' : 'open';
+  const tab = state.cusFinTab==='closed' ? 'closed' : state.cusFinTab==='bal' ? 'bal' : 'open';
+  if(tab==='bal'){
+    const balAll = (state.custodyBalances||[]).filter(b=>b.companyId===cid && b.status==='open');
+    if(!balAll.length) return '<div class="empty">لا مبالغ معلّقة</div>';
+    return `<div class="note-box">مبالغ عُلِّقت عند إقفال العهد بانتظار قرارك: <b>معه</b> = باقٍ مع صاحب العهدة (يُسترجع نقداً أو يدخل عهدته التالية)، و<b>له</b> = مستحق له (يُصرف أو يُخصم من عهدته التالية).</div>`
+      + balAll.map(b=>`<div class="list-item"><div class="li-main"><b>${escH((userById(b.holderId)||{}).name||'')}</b><span>${b.amount>0 ? 'معه' : 'له'} ${cusAmtHtml(Math.abs(b.amount))} د.ك · من العهدة ${b.sourceCustodyId||'—'}</span></div><div class="no-print"><button type="button" class="btn btn-primary btn-md" data-on-click="settleCusBalance" data-on-click-args="${qa([b.id])}">${b.amount>0 ? 'تسوية: استُرجع نقداً' : 'تسوية: صُرف له'}</button></div></div>`).join('');
+  }
   const card = k => {
     const st = CUSTODY_STATUS[k.status]||{l:k.status}, {E, B} = custodySums(k);
     const since = ['close_requested','acct_review','pending_sign'].includes(k.status) ? k.closeRequestedAt : (k.receivedAt||k.createdAt);
@@ -14542,11 +14615,11 @@ function custodyFinanceOverviewHtml(cid){
     const tail = k.status==='closed' ? `أُقفلت ${k.closedAt ? fmtDateDMY(String(k.closedAt).slice(0,10)) : ''}${k.settlementNo ? ' · كشف '+escH(k.settlementNo) : ''}` : `منذ ${days(since)} يوم · موعد الإقفال: ${k.dueCloseAt ? fmtDateDMY(k.dueCloseAt) : '—'}`;
     return `<div class="list-item" data-on-click="openCustody" data-on-click-args="${qa([k.id])}">
       <div class="li-main"><b>${escH((userById(k.holderId)||{}).name||'')} — ${escH(k.purpose||'عهدة')}</b>
-        <span>المبلغ ${cusAmtHtml(k.amount)} د.ك${k.status==='closed' ? '' : ` · المصروف ${cusAmtHtml(E)} · المتبقي ${cusAmtHtml(B)}`} · ${tail}</span></div>
+        <span>المبلغ ${cusAmtHtml(k.amount)} د.ك${k.carriedIn ? ` · مرحَّل ${cusAmtHtml(k.carriedIn)}` : ''}${k.status==='closed' ? '' : ` · المصروف ${cusAmtHtml(E)} · المتبقي ${cusAmtHtml(B)}`} · ${tail}</span>
+        <span>البند: ${escH(((state.budgetItems||[]).find(x=>x.id===k.budgetItemId)||{}).name||'—')}${k.status==='closed' ? '' : ` · المحجوز من البند ${cusAmtHtml(k.amount + (k.carriedIn||0) + Math.max(0,-B))}`}${B<0 && k.status!=='closed' ? ` · <b style="color:var(--red);">⚠ صرف زائد ${cusAmtHtml(-B)}</b>` : ''}</span></div>
       <div class="cus-li-badges"><span class="badge cus-badge" style="--cb:${st.c||'#6b7280'};">${escH(st.l)}${who}</span></div></div>`;
   };
-  return `${tab==='open' ? (live.length ? live.map(card).join('') : '<div class="empty">لا عهد مفتوحة</div>') : (closed.length ? closed.map(card).join('') : '<div class="empty">لا عهد مغلقة</div>')}
-        ${tab==='open' && bal.length ? `<h3 style="margin:12px 0 6px;font-size:15px;">أرصدة معلّقة</h3>${bal.map(b=>`<div class="list-item"><div class="li-main"><b>${escH((userById(b.holderId)||{}).name||'')}</b><span>${cusAmtHtml(b.amount)} د.ك ${b.amount>0 ? 'معه للشركة' : 'له على الشركة'}</span></div><button class="btn btn-ghost btn-sm" data-on-click="settleCusBalance" data-on-click-args="${qa([b.id])}" title="عند ترك العمل مثلاً">تسوية نقداً</button></div>`).join('')}` : ''}`;
+  return `${tab==='open' ? (live.length ? live.map(card).join('') : '<div class="empty">لا عهد مفتوحة</div>') : (closed.length ? closed.map(card).join('') : '<div class="empty">لا عهد مغلقة</div>')}`;
 }
 // صفحة «عهدي»: العهد التي في عهدتي، ثم التي طلبتها لغيري
 function renderCustodyList(app){
@@ -14569,8 +14642,13 @@ function renderCustodyList(app){
     </div>`;
   };
   const canNew = pageAtLeast('custody','edit');
+  if(state.cusFinTab==='over'){
+    const L = state.cusOverList || [];
+    app.innerHTML = `<h1>عهد متجاوزة</h1>` + (L.length ? `<div class="note-box">عهد صُرف منها أكثر من مبلغها، والزيادة محجوزة من رصيد البند.</div>` + L.map(o=>`<div class="list-item"><div class="li-main"><b>${escH(o.holder_name)} — ${escH(o.purpose||'عهدة')}</b><span>البند: ${escH(o.item_name||'—')} · مبلغ العهدة ${cusAmtHtml(o.amount)} د.ك · <b style="color:var(--red);">⚠ صرف زائد ${cusAmtHtml(o.over_amt)}</b>${o.lim!=null ? ' · الحد '+cusAmtHtml(o.lim) : ''}</span></div></div>`).join('') : '<div class="empty">لا عهد متجاوزة</div>');
+    return;
+  }
   if(state.cusFinTab && ['accountant','cfo','admin'].includes(state.user.role)){
-    app.innerHTML = `<h1>عهد الشركة — ${state.cusFinTab==='closed' ? 'المغلقة' : 'المفتوحة'}</h1>${custodyFinanceOverviewHtml(cid) || '<div class="empty">لا عهد</div>'}`;
+    app.innerHTML = `<h1>عهد الشركة — ${state.cusFinTab==='closed' ? 'المغلقة' : state.cusFinTab==='bal' ? 'المبالغ المعلّقة' : 'المفتوحة'}</h1>${custodyFinanceOverviewHtml(cid) || '<div class="empty">لا عهد</div>'}`;
     return;
   }
   app.innerHTML = `
