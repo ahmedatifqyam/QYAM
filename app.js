@@ -2930,7 +2930,7 @@ function navSections(){
   if(state.custodyReady && pageLevel('custody')!=='none'){
     const kN = custodyTasksMine(state.currentCompanyId).length;
     const finU = ['accountant','cfo','admin'].includes(state.user.role), cidn = state.currentCompanyId;
-    const LIVEK = ['open','returned','close_requested','acct_review','pending_sign','awaiting_receipt'];
+    const LIVEK = ['open','returned','close_requested','acct_review','pending_sign','awaiting_receipt'].concat(state.user.role==='admin' ? ['requested'] : []);
     const nOpenK = (state.custodies||[]).filter(k=>k.companyId===cidn && LIVEK.includes(k.status)).length, nClosedK = (state.custodies||[]).filter(k=>k.companyId===cidn && k.status==='closed').length;
     const ft = state.cusFinTab;
     const cpages = [
@@ -14528,7 +14528,7 @@ function renderCustodyPage(app){
 function cusFinTab(t){ state.cusFinTab = t; state.view = 'custodyList'; render(); window.scrollTo(0,0); }
 function custodyFinanceOverviewHtml(cid){
   if(!state.user || !['accountant','cfo','admin'].includes(state.user.role)) return '';
-  const LIVE = ['open','returned','close_requested','acct_review','pending_sign','awaiting_receipt'];
+  const LIVE = ['open','returned','close_requested','acct_review','pending_sign','awaiting_receipt'].concat(state.user.role==='admin' ? ['requested'] : []);
   const live = (state.custodies||[]).filter(k=>k.companyId===cid && LIVE.includes(k.status));
   const closed = (state.custodies||[]).filter(k=>k.companyId===cid && k.status==='closed').sort((a,b)=>String(b.closedAt||'').localeCompare(String(a.closedAt||''))).slice(0,60);
   const days = d => d ? Math.max(0, Math.floor((Date.now()-new Date(d).getTime())/86400000)) : 0;
@@ -14551,7 +14551,7 @@ function custodyFinanceOverviewHtml(cid){
 // صفحة «عهدي»: العهد التي في عهدتي، ثم التي طلبتها لغيري
 function renderCustodyList(app){
   const me = state.user.id, cid = state.currentCompanyId;
-  const all = (state.custodies||[]).filter(k=>k.companyId===cid && !(k.status==='requested' && k.holderId!==me && k.createdById!==me)).slice().sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));
+  const all = (state.custodies||[]).filter(k=>k.companyId===cid && !(k.status==='requested' && k.holderId!==me && k.createdById!==me && state.user.role!=='admin')).slice().sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));
   const mine = all.filter(k=>k.holderId===me), forOthers = all.filter(k=>k.createdById===me && k.holderId!==me);
   const co = custodyCompany(), lim = co.custodyMaxOpen || 1, open = custodyOpenCount(me, cid);
   const waiting = mine.filter(k=>k.status==='awaiting_receipt');
