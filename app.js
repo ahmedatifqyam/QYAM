@@ -14504,6 +14504,37 @@ async function submitCusClose(){
   state.cusClose = null; showToast('أُرسل طلب الإقفال إلى المراجِع', 'success'); render(); return true;
 }
 
+function cusEffLimit(k){
+  const co = state.companies.find(c=>c.id===k.companyId) || {};
+  const mode = k.overMode || co.custodyOverMode || 'none', val = k.overValue!=null ? k.overValue : co.custodyOverValue;
+  if(mode==='percent') return {txt: val+'% من مبلغ العهدة (≈ '+fmtKWDPlain(Math.round(k.amount*val/100*1000)/1000)+' د.ك)', mode, val, own:k.overMode!=null};
+  if(mode==='amount') return {txt: fmtKWDPlain(val)+' د.ك', mode, val, own:k.overMode!=null};
+  return {txt:'بلا حد (لا يُمنع الصرف الزائد)', mode:'none', val:0, own:k.overMode!=null};
+}
+function cusOverLimitCardHtml(k){
+  if(!state.user || ['cancelled','closed'].includes(k.status)) return '';
+  const e = cusEffLimit(k), isAdm = state.user.role==='admin', fin = ['accountant','cfo'].includes(state.user.role);
+  if(!isAdm && !fin) return '';
+  const cur = k.overMode==null ? 'inherit' : k.overMode;
+  const form = isAdm ? `<div class="cus-limit-form no-print" style="margin-top:8px;">
+    <label>نوع الحد</label><select id="cusLimMode" style="--fw:100%;" data-on-change="cusLimToggle"><option value="inherit" ${cur==='inherit'?'selected':''}>حسب إعداد الشركة</option><option value="percent" ${cur==='percent'?'selected':''}>نسبة من مبلغ العهدة</option><option value="amount" ${cur==='amount'?'selected':''}>مبلغ ثابت (د.ك)</option><option value="none" ${cur==='none'?'selected':''}>بلا حد</option></select>
+    <div id="cusLimValBox" ${['percent','amount'].includes(cur)?'':'hidden'}><label>القيمة</label><input id="cusLimVal" type="number" step="0.001" min="0" inputmode="decimal" style="--fw:100%;" value="${k.overValue!=null?k.overValue:''}"></div>
+    <label>سبب التعديل *</label><input id="cusLimWhy" type="text" style="--fw:100%;" placeholder="مثال: عهدة ضيافة تحتاج هامشاً أكبر">
+    <div class="actions-row" style="margin-top:8px;"><button type="button" class="btn btn-primary btn-md" data-on-click="cusLimSave" data-on-click-args="${qa([k.id])}">حفظ حد الصرف</button></div></div>` : '<div class="file-hint">تعديل الحد لمدير النظام فقط.</div>';
+  return `<div class="card cus-limit-card"><h2 style="margin:0 0 6px;font-size:16px;">حد الصرف فوق العهدة</h2><div>الحد الحالي: <b>${escH(e.txt)}</b> <span class="file-hint">(${e.own?'مخصّص لهذه العهدة':'من إعداد الشركة'})</span></div>${form}</div>`;
+}
+function cusLimToggle(){ const m=(document.getElementById('cusLimMode')||{}).value, b=document.getElementById('cusLimValBox'); if(b) b.hidden = !['percent','amount'].includes(m); }
+async function cusLimSave(id){
+  if(!state.user || state.user.role!=='admin'){ showToast('تعديل الحد لمدير النظام فقط','error'); return false; }
+  const m = (document.getElementById('cusLimMode')||{}).value, why = ((document.getElementById('cusLimWhy')||{}).value||'').trim();
+  const v = parseFloat((document.getElementById('cusLimVal')||{}).value);
+  if(!why){ showToast('اكتب سبب تعديل الحد','error'); return false; }
+  if(['percent','amount'].includes(m) && !(isFinite(v) && v>=0)){ showToast('أدخل قيمة صحيحة للحد','error'); return false; }
+  if(m==='percent' && v>100){ showToast('النسبة لا تزيد عن 100%','error'); return false; }
+  const r = await db.rpc('qy_custody_set_over', {p_id:Number(id), p_mode: m==='inherit' ? null : m, p_value: ['percent','amount'].includes(m) ? v : null, p_note: why});
+  if(!(await dbCheck(r, 'حفظ حد الصرف'))) return false;
+  showToast('حُفظ حد الصرف','success'); await cusRefresh(); return true;
+}
 function renderCustodyPage(app){
   const kc = (state.custodies||[]).find(x=>x.id===state.activeCustodyId);
   const req = kc ? state.requests.find(r=>r.id===kc.requestId) : null;
@@ -14573,6 +14604,7 @@ function renderCustodyPage(app){
         </div>
         ${act}
       </div>`}
+      ${docsOpen ? '' : cusOverLimitCardHtml(kc)}
       ${docsOpen ? '' : `${custodyDocsEntryHtml(kc)}${custodyLinesTableHtml(kc)}`}
       <div class="history no-print"${docsOpen ? ' hidden' : ''}>
         <h2>سجل الطلب والعهدة</h2>
@@ -14891,7 +14923,7 @@ function renderDetail(app){
 }
 
 // ===================== أثر الضغط على الأزرار: انشغال + منع الضغط المزدوج + ✓ عند النجاح =====================
-const BUSY_FNS = ['cusDocsReview','cusDocsFinish','cusReopenLine','saveSysIdentity','reviewCusLine','cusReviewerDone','cusAcctDecide','cusSign','settleCusBalance','saveCusLine','deleteCusLine','submitCusClose','setUserAvatar','removeUserAvatar','submitCustody','confirmCustodyReceipt','approve','markDisbursed','resubmit','confirmRejectModal','submitBankTransfer','confirmManualSign','saveAccount','addCompany','addCenter','addCustomRole','addUser','saveUserEdit','saveCenterEdit','saveCompanyEdit','saveSigDesignerConfig','restoreRequest','confirmDeletePassword'];
+const BUSY_FNS = ['cusDocsReview','cusDocsFinish','cusReopenLine','saveSysIdentity','reviewCusLine','cusReviewerDone','cusAcctDecide','cusSign','cusLimSave','settleCusBalance','saveCusLine','deleteCusLine','submitCusClose','setUserAvatar','removeUserAvatar','submitCustody','confirmCustodyReceipt','approve','markDisbursed','resubmit','confirmRejectModal','submitBankTransfer','confirmManualSign','saveAccount','addCompany','addCenter','addCustomRole','addUser','saveUserEdit','saveCenterEdit','saveCompanyEdit','saveSigDesignerConfig','restoreRequest','confirmDeletePassword'];
 const _busyLocks = {};
 function clickedButton(){
   const ev = window.event, t = ev && ev.target;
