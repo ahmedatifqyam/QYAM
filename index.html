@@ -1489,6 +1489,29 @@
   .cus-docs-body{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);gap:16px;align-items:start;}
   .cus-doc-prev{border:1px solid var(--line);border-radius:8px;background:#F4F2EC;min-height:320px;display:flex;align-items:center;justify-content:center;overflow:auto;max-height:640px;}
   .cus-doc-prev img{max-width:100%;max-height:620px;object-fit:contain;display:block;}
+  .cus-doc-prev{flex-direction:column;align-items:center;justify-content:flex-start;max-height:none;min-height:0;padding:8px;background:#E9E6DE;}
+  .cus-a4{width:100%;max-width:420px;aspect-ratio:210/297;background:#fff;border:1px solid var(--line);position:relative;container-type:size;overflow:hidden;margin:0 auto;box-shadow:0 1px 4px rgba(0,0,0,.12);}
+  .cus-doc-prev .cus-a4 img, #cusPrintSheet .cus-a4 img{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) rotate(var(--rot,0deg));max-width:100cqw;max-height:100cqh;width:auto;height:auto;object-fit:contain;}
+  .cus-a4.r90 img,.cus-a4.r270 img{max-width:100cqh !important;max-height:100cqw !important;}
+  .cus-a4 iframe{position:absolute;inset:0;width:100%;height:100%;border:0;}
+  #cusPrintSheet{display:none;}
+  @media print{
+    @page{size:A4;margin:12mm;}
+    body.printing-cus2 > *:not(#cusPrintSheet){display:none !important;}
+    body.printing-cus2 #cusPrintSheet{display:block !important;color:#000;background:#fff;font-size:13px;direction:rtl;text-align:right;}
+    #cusPrintSheet .ps-sub{color:#444;margin-bottom:8px;}
+    #cusPrintSheet table{width:100%;border-collapse:collapse;margin:6px 0;}
+    #cusPrintSheet th,#cusPrintSheet td{border:1px solid #888;padding:5px 8px;text-align:right;}
+    #cusPrintSheet th{background:#eee;}
+    #cusPrintSheet .ps-info td:nth-child(odd){background:#f5f5f5;width:18%;}
+    #cusPrintSheet .ps-amt{white-space:nowrap;}
+    #cusPrintSheet .ps-tot{width:60%;margin-top:12px;}
+    #cusPrintSheet .ps-main td{font-weight:700;background:#f5f5f5;}
+    #cusPrintSheet .ps-note{margin-top:10px;color:#444;}
+    #cusPrintSheet .ps-doc{page-break-before:always;break-before:page;}
+    #cusPrintSheet .ps-doc-h{font-weight:700;margin-bottom:6px;}
+    #cusPrintSheet .cus-a4{width:186mm;max-width:none;height:250mm;aspect-ratio:auto;box-shadow:none;border:1px solid #bbb;}
+  }
   .cus-doc-no{font-size:13px;color:var(--muted);font-weight:700;margin-bottom:6px;} .cus-doc-desc{font-size:19px;font-weight:800;color:var(--ink);line-height:1.5;}
   .cus-doc-amt{font-size:28px;font-weight:800;margin:6px 0;} .cus-doc-meta{font-size:13.5px;color:var(--text);margin-bottom:6px;}
   .cus-doc-fields label{margin-top:8px;} .cus-doc-fields input,.cus-doc-fields select{width:100%;max-width:100%;}
@@ -1548,6 +1571,6 @@ input.dtx::-webkit-calendar-picker-indicator{cursor:pointer;}
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.0.3/qrcode.min.js"></script>
-<script src="app.js?v=c6c8fa7c24"></script>
+<script src="app.js?v=d655b9e98a"></script>
 </body>
 </html>
