@@ -6203,6 +6203,7 @@ function navTrack(){
       prev.scrollY = window.scrollY;
       (state._navStack = state._navStack||[]).push(prev);
       if(state._navStack.length>30) state._navStack.shift();
+      qyHistPush();
     }
   }
   state._navPopping = false;
@@ -6213,6 +6214,7 @@ function navBack(fallback){
   const here = navKey(navSnap());
   let t = st.pop();
   while(t && (navKey(t)===here || t.view==='newRequest' || t.view==='login' || (t.view==='detail' && !state.requests.some(r=>r.id===t.activeReqId)))) t = st.pop();
+  qyHistPopSilently();
   state._navPopping = true;
   if(t){ state.view=t.view; state.activeReqId=t.activeReqId; if(t.adminSubTab) state.adminSubTab=t.adminSubTab; }
   else state.view = fallback || 'dashboard';
@@ -6242,19 +6244,34 @@ function navCloseOverlay(){
   if(!k) return false;
   state[k]=null; render(); return true;
 }
-// زر الرجوع في الهاتف/المتصفح: نُبقي إدخالاً واحداً أمام المستخدم دائماً، فإذا ضغط رجوع عالجناه داخل النظام ثم أعدنا الإدخال.
-// فيرجع إلى صفحة النظام السابقة بدل إغلاق المتصفح، ولا يخرج من الصفحة الرئيسية.
-(function(){
-  let armed=false;
-  function arm(){ if(armed) return; armed=true; try{ history.replaceState({qyRoot:1},''); history.pushState({qy:1},''); }catch(e){} }
-  ['pointerdown','keydown','touchstart'].forEach(ev=>document.addEventListener(ev,arm,{once:true,capture:true,passive:true}));
-  window.addEventListener('popstate',()=>{
-    if(!armed) return;
-    try{ history.pushState({qy:1},''); }catch(e){}
-    if(!state.user || state.view==='login') return;
-    navBackSafe();
-  });
-})();
+// زر الرجوع في الهاتف/المتصفح (والتطبيق المثبّت): سجل المتصفح يطابق سجل التنقل داخل النظام إدخالاً بإدخال.
+// كل انتقال للأمام يضيف إدخالاً {qyDepth: عمق السجل}، وكل رجوع داخل النظام يسحب إدخالاً، فيبقى العدّان متطابقين:
+// يرجع خطوة بعد خطوة لصفحات النظام، وعند الصفحة الرئيسية يبقى فيها (إدخال حارس واحد في القاع) بدل إغلاق التطبيق.
+const qyHist = {armed:false, skip:0, fromPop:false};
+function qyHistArm(){
+  if(qyHist.armed) return; qyHist.armed = true;
+  try{ history.replaceState({qyRoot:1},''); history.pushState({qyDepth:(state._navStack||[]).length},''); }catch(e){}
+}
+['pointerdown','keydown','touchstart'].forEach(ev=>document.addEventListener(ev,qyHistArm,{once:true,capture:true,passive:true}));
+function qyHistPush(){ if(!qyHist.armed) return; try{ history.pushState({qyDepth:(state._navStack||[]).length},''); }catch(e){} }
+function qyHistPopSilently(){ if(!qyHist.armed || qyHist.fromPop) return; const d = history.state && history.state.qyDepth; if(typeof d==='number' && d>0){ qyHist.skip++; try{ history.back(); }catch(e){ qyHist.skip--; } } }
+window.addEventListener('popstate',ev=>{
+  if(qyHist.skip>0){ qyHist.skip--; return; }
+  if(!qyHist.armed || !state.user || state.view==='login') return;
+  const st = ev.state || {};
+  const len = (state._navStack||[]).length;
+  if(st.qyRoot){   // ضغط رجوع وهو في الصفحة الرئيسية: يبقى فيها
+    try{ history.pushState({qyDepth:len},''); }catch(e){}
+    if(!navCloseOverlay() && state.view!=='dashboard'){ state.view='dashboard'; render(); }
+    return;
+  }
+  const d = typeof st.qyDepth==='number' ? st.qyDepth : 0;
+  if(d > len){ try{ history.go(len - d); }catch(e){} return; }   // إدخالات زائدة قديمة: نتخطّاها
+  if(navCloseOverlay()){ try{ history.pushState({qyDepth:len},''); }catch(e){} return; }   // أُغلقت نافذة فقط: نعيد الإدخال
+  if(navFormDirty() && !confirm('عندك بيانات مكتوبة في هذه الصفحة.\n\nهل تريد الرجوع وتجاهلها؟')){ try{ history.pushState({qyDepth:len},''); }catch(e){} return; }
+  qyHist.fromPop = true;
+  try{ while((state._navStack||[]).length > d && (state._navStack||[]).length>0){ const before=(state._navStack||[]).length; navBack('dashboard'); if((state._navStack||[]).length>=before) break; } } finally { qyHist.fromPop = false; }
+});
 function render(){
   if(state.pendingEscalate && state.pendingEscalate.reqId!==state.activeReqId) state.pendingEscalate = null;
   if(state.user && !viewAllowed(state.view)) state.view = 'dashboard';
