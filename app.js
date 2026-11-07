@@ -6220,6 +6220,41 @@ function navBack(fallback){
   const y = t ? (t.scrollY||0) : 0;
   setTimeout(()=>window.scrollTo(0,y), 0);
 }
+function navCanGoBack(){
+  if(state.view!=='dashboard') return true;
+  return (state._navStack||[]).some(t=>navKey(t)!==navKey(navSnap()) && t.view!=='login');
+}
+function navFormDirty(){
+  if(state.view!=='newRequest' && state.view!=='newCustody') return false;
+  return Array.from(document.querySelectorAll('#app input:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=date]):not([readonly]),#app textarea')).some(e=>String(e.value||'').trim()!=='');
+}
+function navBackSafe(){
+  if(navCloseOverlay()) return true;
+  if(!navCanGoBack()) { showToast('أنت في الصفحة الرئيسية','info'); return false; }
+  if(navFormDirty() && !confirm('عندك بيانات مكتوبة في هذه الصفحة.\n\nهل تريد الرجوع وتجاهلها؟')) return false;
+  navBack('dashboard');
+  return true;
+}
+// نافذة مفتوحة (معاينة ملف، مرفقات، رفض…): زر الرجوع يغلقها أولاً بدل مغادرة الصفحة
+function navCloseOverlay(){
+  const keys=['filePreviewModal','attModal','rejectModalReqId','pendingDelete','suspendCheck','manualSignReqId','transferFormReqId'];
+  const k=keys.find(x=>state[x]);
+  if(!k) return false;
+  state[k]=null; render(); return true;
+}
+// زر الرجوع في الهاتف/المتصفح: نُبقي إدخالاً واحداً أمام المستخدم دائماً، فإذا ضغط رجوع عالجناه داخل النظام ثم أعدنا الإدخال.
+// فيرجع إلى صفحة النظام السابقة بدل إغلاق المتصفح، ولا يخرج من الصفحة الرئيسية.
+(function(){
+  let armed=false;
+  function arm(){ if(armed) return; armed=true; try{ history.replaceState({qyRoot:1},''); history.pushState({qy:1},''); }catch(e){} }
+  ['pointerdown','keydown','touchstart'].forEach(ev=>document.addEventListener(ev,arm,{once:true,capture:true,passive:true}));
+  window.addEventListener('popstate',()=>{
+    if(!armed) return;
+    try{ history.pushState({qy:1},''); }catch(e){}
+    if(!state.user || state.view==='login') return;
+    navBackSafe();
+  });
+})();
 function render(){
   if(state.pendingEscalate && state.pendingEscalate.reqId!==state.activeReqId) state.pendingEscalate = null;
   if(state.user && !viewAllowed(state.view)) state.view = 'dashboard';
@@ -6346,6 +6381,7 @@ function moveRowsToBottomBar(){
       else { const inner = ch.querySelectorAll('button'); if(inner.length) inner.forEach(x=>flat.push(x)); else flat.push(ch); }
     });
     flat.forEach(btn=>{
+      if(/^[→←\s]*رجوع\s*$/.test((btn.textContent||'').trim())) return;   // زر الرجوع ثابت في الشريط
       const copy = btn.cloneNode(true);
       copy.removeAttribute('id');
       // الشريط السفلي كله بالحجم الخامس (105×40): أزيل أي حجم آخر. الزر المزدوج يبقى سطره الأول فقط، ونصه الكامل في التلميح
@@ -6598,6 +6634,10 @@ function renderSiteMap(app){
       </div>`).join('')}`;
 }
 
+function qyBackBtn(){
+  const can = navCanGoBack();
+  return `<button type="button" class="btn btn-ghost btn-sm qy-back" data-on-click="navBackSafe" ${can?'title="يرجع إلى الصفحة السابقة"':'disabled title="أنت في الصفحة الرئيسية"'}>→ رجوع</button>`;
+}
 function renderGlobalFloatingBar(){
   if(state.view==='newRequest' || state.view==='login') return '';
   let buttons = '';
@@ -6605,23 +6645,11 @@ function renderGlobalFloatingBar(){
     buttons = `<button class="btn btn-primary btn-lg" data-on-click="openNewRequestChoice">+ طلب صرف جديد</button>`;
   } else if(state.view==='detail'){
     const req = state.requests.find(r=>r.id===state.activeReqId);
-    buttons = `
-      <button class="btn btn-ghost btn-md" data-on-click="navBack" data-on-click-args="${qa(["dashboard"])}">→ رجوع</button>
-      ${req ? `<button class="btn btn-primary btn-md" data-on-click="openPrintPreview" data-on-click-args="${qa([(''+(req.id))])}">معاينة الطلب</button>` : ''}
-    `;
+    buttons = req ? `<button class="btn btn-primary btn-md" data-on-click="openPrintPreview" data-on-click-args="${qa([(''+(req.id))])}">معاينة الطلب</button>` : '';
   } else if(state.view==='printPreview'){
-    buttons = `
-      <button class="btn btn-ghost btn-md" data-on-click="navBack" data-on-click-args="${qa(["detail"])}">→ رجوع</button>
-      <button class="btn btn-primary btn-lg" data-on-click="#53">طباعة / تحميل PDF</button>
-    `;
-  } else if(state.view==='duplicateList'){
-    buttons = `<button class="btn btn-ghost btn-md" data-on-click="navBack" data-on-click-args="${qa(["newRequestChoice"])}">→ رجوع</button>`;
-  } else if(inAdminArea()){
-    buttons = ''; // التنقل بصفحات الأدمن عبر الشريط الجانبي، فلا حاجة لزر رجوع مكرر
-  } else {
-    buttons = `<button class="btn btn-ghost btn-md" data-on-click="navBack" data-on-click-args="${qa(["dashboard"])}">→ رجوع</button>`;
+    buttons = `<button class="btn btn-primary btn-lg" data-on-click="#53">طباعة / تحميل PDF</button>`;
   }
-  return renderGlobalFloatingBarInner(buttons);
+  return renderGlobalFloatingBarInner(qyBackBtn() + buttons);
 }
 function supportContactHtml(isStatic){
   const waIcon = `<svg viewBox="0 0 24 24" width="24" height="24" fill="#25D366"><path d="M12 2a10 10 0 0 0-8.5 15.2L2 22l4.9-1.5A10 10 0 1 0 12 2zm5.8 14.2c-.2.7-1.4 1.3-2 1.4-.5.1-1.2.2-3.5-.7-2.9-1.1-4.8-4.1-5-4.3-.1-.2-1.2-1.6-1.2-3s.7-2.1 1-2.4c.3-.3.6-.4.8-.4h.6c.2 0 .4 0 .6.5.2.6.8 2 .9 2.1.1.2.1.3 0 .5-.6 1.2-1.2 1.1-.6 2 .9 1.6 1.7 2.1 3 2.7.2.1.4.1.5-.1.2-.2.7-.8.9-1.1.2-.3.4-.2.6-.1.2.1 1.5.7 1.8.9.3.1.4.2.5.3.1.2.1.9-.1 1.6z"/></svg>`;
@@ -13176,6 +13204,7 @@ function renderNewRequest(app){
     </div>
     <div class="gfb-spacer" style="height:70px;"></div>
     <div class="sticky-submit-bar no-print">
+      ${qyBackBtn()}
       <button type="button" class="btn btn-ghost btn-md" title="إضافة مستفيد" style="flex:0 0 auto;" data-on-click="addBeneficiaryRow">+ إضافة مستفيد</button>
       <button id="amountLimitBadge" type="button" data-on-click="scrollToAmountWarning" title="اضغط لعرض تفاصيل التحذير" style="display:none;background:var(--amber-bg);color:#1B2733;border:2px solid var(--amber);border-radius:24px;padding:9px 18px;font-size:15px;font-weight:700;white-space:nowrap;align-items:center;gap:8px;cursor:pointer;">
         <span style="font-size:22px;line-height:1;">⚠️</span> تجاوز الحد
