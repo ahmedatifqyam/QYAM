@@ -14517,7 +14517,7 @@ function renderDetail(app){
   if(canRebuildAndReset){
     actionsHtml += `
       <div class="actions-row no-print" style="margin-top:8px;" data-bar-actions data-bar-key="rebuild_reset">
-        <button class="btn btn-warning btn-md2" data-on-click="rebuildResetFix" title="يُعيد بناء المسار ويُلغي الاعتمادات السابقة ويُرسل إشعاراً للمعتمدين"><span class="bl1">⟳ إعادة المسار والاعتماد</span><span class="bl2">${isInTail ? 'الطلب وصل للتنفيذ — إعادة للاعتماد' : 'هناك اعتماد سابق — إعادة للاعتماد'}</span></button>
+        <button class="btn btn-warning btn-md2" data-on-click="rebuildResetFix" title="يُعيد بناء المسار ويُلغي الاعتمادات السابقة ويُرسل إشعاراً للمعتمدين"><span class="bl1">⟳ إعادة المسار</span><span class="bl2">والاعتماد من جديد</span></button>
       </div>`;
   }
 

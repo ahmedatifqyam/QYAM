@@ -440,22 +440,22 @@
   .row > *:has(> #nbiNotes), .row > *:has(> #ebiNotes), .row > *:has(> #meDesc), .row > *:has(> #nrevDesc), .row > *:has(> #meNote){--fw:580px;}
   /* ===== نظام أحجام الأزرار الموحّد (3 أحجام فقط، نفس القيم بالحاسوب والجوال) ===== */
   .btn{
-    --btn-h:45px; --btn-w:220px; --btn-px:10px; --btn-fs:15px; --btn-fs2:12.5px;
+    --btn-h:40px; --btn-w:220px; --btn-px:10px; --btn-fs:14.5px; --btn-fs2:12.5px;
     display:inline-flex;align-items:center;justify-content:center;text-align:center;
     width:var(--btn-w);min-height:var(--btn-h);box-sizing:border-box;border:2px solid transparent;border-radius:6px;
     padding:0 var(--btn-px);font-size:var(--btn-fs);line-height:1.3;
     cursor:pointer;font-family:inherit;font-weight:500;
   }
-  /* الأحجام الثمانية: العرض والارتفاع ثابتان، الحشوة الجانبية 10 للكل */
-  .btn.btn-lg {--btn-h:45px; --btn-w:220px; --btn-fs:15px;}                       /* 1 الأول */
-  .btn.btn-lg2{--btn-h:55px; --btn-w:220px; --btn-fs:15px;   --btn-fs2:13px;}   /* 2 الأول المزدوج */
+  /* الارتفاع موحّد 40 لكل الأحجام؛ تختلف الأعراض فقط: كبير 220 / متوسط 150 / صغير 105 / مصغّر 70 (والمزدوجة بخطين داخل الـ40). العرض والارتفاع ثابتان، الحشوة الجانبية 10 للكل */
+  .btn.btn-lg {--btn-h:40px; --btn-w:220px; --btn-fs:14.5px;}                       /* 1 الأول */
+  .btn.btn-lg2{--btn-h:40px; --btn-w:220px; --btn-fs:13px;   --btn-fs2:11px;}   /* 2 الأول المزدوج */
   .btn.btn-md {--btn-h:40px; --btn-w:150px; --btn-fs:13.5px;}                     /* 3 الوسط */
-  .btn.btn-md2{--btn-h:50px; --btn-w:150px; --btn-fs:13.5px; --btn-fs2:12px;}   /* 4 الوسط المزدوج */
+  .btn.btn-md2{--btn-h:40px; --btn-w:150px; --btn-fs:12.5px; --btn-fs2:11px;}   /* 4 الوسط المزدوج */
   .btn.btn-sm {--btn-h:40px; --btn-w:105px; --btn-fs:13px;}                       /* 5 الثالث */
-  .btn.btn-sm2{--btn-h:45px; --btn-w:105px; --btn-fs:13px;   --btn-fs2:11px;}   /* 6 الثالث المزدوج */
-  .btn.btn-xs {--btn-h:35px; --btn-w:70px;  --btn-fs:13px;}                       /* 7 الجديد */
-  .btn.btn-xs2{--btn-h:40px; --btn-w:70px;  --btn-fs:13px;   --btn-fs2:10.5px;}     /* 8 الجديد المزدوج */
-  .btn.btn-lg2,.btn.btn-md2,.btn.btn-sm2,.btn.btn-xs2{flex-direction:column;gap:1px;line-height:1.2;}
+  .btn.btn-sm2{--btn-h:40px; --btn-w:105px; --btn-fs:12px;   --btn-fs2:10.5px;}   /* 6 الثالث المزدوج */
+  .btn.btn-xs {--btn-h:40px; --btn-w:70px;  --btn-fs:13px;}                       /* 7 الجديد */
+  .btn.btn-xs2{--btn-h:40px; --btn-w:70px;  --btn-fs:12px;   --btn-fs2:10px;}     /* 8 الجديد المزدوج */
+  .btn.btn-lg2,.btn.btn-md2,.btn.btn-sm2,.btn.btn-xs2{flex-direction:column;gap:0;line-height:1.1;}
   .btn .bl2{font-size:var(--btn-fs2);font-weight:400;opacity:.85;}
   .btn-primary{background:#22415C;color:#fff;border-color:#182D40;box-shadow:0 2px 6px rgba(27,39,51,0.4);}
   .btn-primary:hover{opacity:.9;}
@@ -1516,6 +1516,6 @@ input.dtx::-webkit-calendar-picker-indicator{cursor:pointer;}
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.0.3/qrcode.min.js"></script>
-<script src="app.js?v=092850592d"></script>
+<script src="app.js?v=6e95644183"></script>
 </body>
 </html>
