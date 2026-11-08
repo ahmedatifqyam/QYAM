@@ -249,7 +249,7 @@
   .req-star{color:var(--red);}
   @media (max-width:860px){ .cf-grid{grid-template-columns:repeat(2,minmax(0,1fr));column-gap:12px;} .cf-s4,.cf-full{grid-column:1 / -1;} .cf-s2{grid-column:span 1;} .cf-side{padding-bottom:0;} }
   @media (max-width:480px){ .cf-grid{grid-template-columns:1fr;} .cf-s2{grid-column:1 / -1;} }
-  .header-actions-flex .stepper.cus-stepper{flex:1 1 100%;flex-wrap:nowrap;overflow-x:auto;padding-bottom:4px;}
+  .header-actions-flex .stepper.cus-stepper{flex:1 1 300px;min-width:0;flex-wrap:nowrap;overflow-x:auto;padding-bottom:4px;}
   /* زر معطّل لسبب مكتوب: يبدو معطّلاً بوضوح (غير زر الانشغال المؤقت) */
   .btn[disabled][title]:not(.is-busy){opacity:.5;cursor:not-allowed;}
   @media (max-width:700px){ .cus-cards{grid-template-columns:repeat(2,minmax(0,1fr));} .cus-card.main{grid-column:1 / -1;} }
@@ -1471,10 +1471,12 @@
   .cus-th-pdf{font-size:12px;font-weight:700;}
   .cus-th-x{position:absolute;top:-6px;left:-6px;width:22px;height:22px;border-radius:50%;border:0;background:#b91c1c;color:#fff;font-size:12px;line-height:22px;padding:0;cursor:pointer;}
   .cus-tabs{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 10px;}
-  .cus-stp-btn{display:none;}
+  .cus-stp-btn{display:inline-flex;}
+  .cus-stepper:not(.open){display:none;}
+  .cus-lines td.cus-out{color:var(--red);font-weight:700;} .cus-lines td.cus-in{color:var(--green);font-weight:700;} .cus-lines td.cus-run{font-weight:700;} .cus-lines tr.cus-open-row td{background:#F6F4EE;}
+  #cusPrintSheet .ps-out{color:#b91c1c;} #cusPrintSheet .ps-in{color:#15803d;}
   @media (max-width:700px){
-    .cus-stp-btn{display:inline-flex;}
-    .cus-stepper:not(.open){display:none;}
+    .cus-lines td.cus-empty{display:none !important;}
     table.cus-lines, .cus-lines thead, .cus-lines tbody{display:block;width:100%;min-width:0 !important;}
     .cus-lines td::after{display:none !important;}
     .cus-lines thead{display:none;}
@@ -1545,9 +1547,9 @@
 /* حقل التاريخ الموحّد: نخفي نص المتصفح ونعرض يوم-شهر-سنة */
 .dt-box{position:relative;display:inline-block;max-width:100%;vertical-align:middle;}
 .dt-box > input.dtx{width:100%;box-sizing:border-box;}
-input.dtx::-webkit-datetime-edit{color:transparent;} input.dtx::-webkit-datetime-edit-fields-wrapper{color:transparent;}
+input.dtx{color:transparent !important;-webkit-text-fill-color:transparent !important;caret-color:transparent;} input.dtx::-webkit-datetime-edit,input.dtx::-webkit-datetime-edit-fields-wrapper,input.dtx::-webkit-datetime-edit-text,input.dtx::-webkit-datetime-edit-day-field,input.dtx::-webkit-datetime-edit-month-field,input.dtx::-webkit-datetime-edit-year-field{opacity:0 !important;color:transparent !important;-webkit-text-fill-color:transparent !important;}
 input.dtx::-webkit-calendar-picker-indicator{cursor:pointer;}
-.dt-txt{position:absolute;inset:0 34px 0 34px;display:flex;align-items:center;justify-content:flex-start;pointer-events:none;color:var(--text);font:inherit;font-size:inherit;direction:rtl;white-space:nowrap;overflow:hidden;}
+.dt-txt{position:absolute;inset:0 12px 0 34px;display:flex;align-items:center;justify-content:flex-start;pointer-events:none;color:var(--text);font:inherit;font-size:inherit;direction:rtl;white-space:nowrap;overflow:hidden;}
 .dt-txt.ph{color:#8a8a84;} .dt-txt.dis{opacity:.55;}
 .qy-back[disabled]{opacity:.4;cursor:not-allowed;}
 .sticky-submit-bar .qy-back{background:transparent;color:#fff;border-color:rgba(255,255,255,0.35);}
@@ -1571,6 +1573,6 @@ input.dtx::-webkit-calendar-picker-indicator{cursor:pointer;}
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.0.3/qrcode.min.js"></script>
-<script src="app.js?v=403d791655"></script>
+<script src="app.js?v=57e349857f"></script>
 </body>
 </html>
