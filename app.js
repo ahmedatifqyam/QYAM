@@ -1019,12 +1019,13 @@ function isOverdueFor(req, userId){
   return ageDays(start) > OVERDUE_DAYS;
 }
 function agoText(ts){
+  if(!ts || ts<=0) return '';
   const m = Math.max(0, Math.round((Date.now()-ts)/60000));
   if(m<1) return 'الآن';
-  if(m<60) return 'منذ '+m+' دقيقة';
-  const h = Math.round(m/60);
-  if(h<24) return 'منذ '+h+' ساعة';
-  return 'منذ '+arDays(h/24);
+  if(m<60) return 'منذ ' + (m===1 ? 'دقيقة' : m===2 ? 'دقيقتين' : m<=10 ? m+' دقائق' : m+' دقيقة');
+  const h = Math.floor(m/60);
+  if(h<24) return 'منذ ' + (h===1 ? 'ساعة' : h===2 ? 'ساعتين' : h<=10 ? h+' ساعات' : h+' ساعة');
+  return 'منذ '+arDays(Math.floor(h/24));
 }
 function notifSeenKey(){ return 'qayam_notif_seen_at_' + (state.user ? state.user.id : ''); }
 // أحدث توقيت لحدث بالطلبات (بتوقيت الخادم). نسجّل "المقروء" بهذا التوقيت لا بساعة الجهاز، فلا يتأثر بفرق الساعات بين الجهازين والخادم
@@ -1109,7 +1110,7 @@ function computeNotifications(){
   if(state.custodyReady) custodyAwaitingMine().forEach(k=>{
     const r = state.requests.find(x=>x.id===k.requestId);
     const paid = r ? (r.history||[]).slice().reverse().find(h=>h.action==='تم الصرف') : null;
-    const ts = paid ? tsOf(paid.createdAt) : tsOf(k.createdAt), key = 'cr:'+k.id;
+    const ts = (paid && tsOf(paid.createdAt)) || (r ? lastEventAt(r) : 0) || tsOf(k.createdAt), key = 'cr:'+k.id;
     const days = (state.companies.find(c=>c.id===k.companyId)||{}).custodyReceiptDays || 3;
     items.push({key, kind:'custody_receipt', reqId:String(k.id), number:r ? r.number : '', ts, isNew:(ts>seen || isFreshKey(key)), overdue:(ts>0 && Date.now()-ts > days*86400000),
       title:'صُرفت لك عهدة — أكّد استلامها', sub:((r && r.number) || '')+' — '+(k.purpose || (r && r.reason) || '')+' — '+fmtKWDPlain(k.amount)});
@@ -1123,7 +1124,7 @@ function computeNotifications(){
     else if(k.status==='returned' && k.holderId===me) title = 'أُعيدت عهدتك للتصحيح';
     if(!title) return;
     const r = state.requests.find(x=>x.id===k.requestId), key = 'ct:'+k.id+':'+k.status;
-    const ts = tsOf(k.closeRequestedAt) || tsOf(k.createdAt);
+    const rq0 = state.requests.find(x=>x.id===k.requestId), ts = (rq0 ? lastEventAt(rq0) : 0) || tsOf(k.closeRequestedAt) || tsOf(k.createdAt);
     items.push({key, kind:'custody_receipt', reqId:String(k.id), number:r ? r.number : '', ts, isNew:(ts>seen || isFreshKey(key)), overdue:false,
       title, sub:((r && r.number) || '')+' — '+(k.purpose || '')+' — '+((userById(k.holderId)||{}).name||'')});
   });
@@ -14022,7 +14023,7 @@ function custodyDocsEntryHtml(kc){
 function custodyLinesTableHtml(kc){
   if(!state.custodyLinesReady) return '';
   const L = custodyLinesOf(kc); if(!L.length) return '<div class="empty no-print" style="margin:10px 0;">لا مصروفات ولا مقبوضات مسجّلة بعد</div>';
-  const st = {draft:'', accepted:'<span class="badge cus-badge" style="--cb:#15803d;">مقبول</span>', rejected:'<span class="badge cus-badge" style="--cb:#b91c1c;">مرفوض</span>'};
+  const st = {draft:'', accepted:'مقبول', rejected:'مرفوض'};
   const reviewing = cusCanReviewLines(kc);
   let run = Math.round((kc.amount + kc.carriedIn)*1000)/1000;
   const rows = L.map((l,i)=>{
@@ -14036,11 +14037,11 @@ function custodyLinesTableHtml(kc){
       <td data-l="التاريخ">${l.lineDate ? fmtDateDMY(l.lineDate) : ''}</td>
       ${l.kind==='expense' ? `<td data-l="صرف" class="cus-out"><span>${fmtKWDHtml(l.amount)}</span></td><td class="cus-empty"></td>` : `<td class="cus-empty"></td><td data-l="قبض" class="cus-in"><span>${fmtKWDHtml(l.amount)}</span></td>`}
       <td data-l="الرصيد" class="cus-run"><span>${cusAmtHtml(run)}</span></td>
-      <td data-l="الحالة">${st[es]||'<span class="file-hint">—</span>'}</td>
+      <td data-l="الحالة" class="cus-st${es==='accepted' ? ' st-ok' : es==='rejected' ? ' st-bad' : ''}">${st[es]||'—'}</td>
     </tr>`; }).join('');
   const open0 = Math.round((kc.amount + kc.carriedIn)*1000)/1000;
-  return `<table class="app-table cus-lines"><thead><tr><th style="width:40px;">#</th><th style="width:70px;">النوع</th><th>الوصف</th><th style="width:100px;">رقم الفاتورة</th><th style="width:105px;">التاريخ</th><th style="width:105px;">صرف</th><th style="width:105px;">قبض</th><th style="width:115px;">الرصيد</th><th style="width:90px;">الحالة</th></tr></thead><tbody>
-    <tr class="cus-open-row"><td class="num"></td><td></td><td data-l="الوصف"><b>رصيد العهدة (المبلغ + المرحّل)</b></td><td></td><td></td><td class="cus-empty"></td><td class="cus-empty"></td><td data-l="الرصيد" class="cus-run"><span>${cusAmtHtml(open0)}</span></td><td></td></tr>
+  return `<table class="app-table cus-lines"><colgroup><col style="width:34px"><col style="width:62px"><col><col style="width:84px"><col style="width:92px"><col style="width:84px"><col style="width:84px"><col style="width:92px"><col style="width:64px"></colgroup><thead><tr><th>#</th><th>النوع</th><th>الوصف</th><th>الفاتورة</th><th>التاريخ</th><th>صرف</th><th>قبض</th><th>الرصيد</th><th>الحالة</th></tr></thead><tbody>
+    <tr class="cus-open-row"><td class="num"></td><td colspan="4" data-l="الوصف"><b>رصيد العهدة (المبلغ + المرحّل)</b></td><td class="cus-empty"></td><td class="cus-empty"></td><td data-l="الرصيد" class="cus-run"><span>${cusAmtHtml(open0)}</span></td><td></td></tr>
     ${rows}</tbody></table>`;
 }
 // نموذج السطر: المبلغ والوصف وصورة السند إلزامية (المصروف من مبلغ تحدده الشركة)؛ رقم الفاتورة والتاريخ اختياريان
@@ -14586,10 +14587,12 @@ function cusOverLimitCardHtml(k){
   if(!isAdm && !fin) return '';
   const cur = k.overMode==null ? 'inherit' : k.overMode;
   const form = isAdm ? `<div class="cus-limit-form no-print" style="margin-top:8px;">
-    <label>نوع الحد</label><select id="cusLimMode" style="--fw:100%;" data-on-change="cusLimToggle"><option value="inherit" ${cur==='inherit'?'selected':''}>حسب إعداد الشركة</option><option value="percent" ${cur==='percent'?'selected':''}>نسبة من مبلغ العهدة</option><option value="amount" ${cur==='amount'?'selected':''}>مبلغ ثابت (د.ك)</option><option value="none" ${cur==='none'?'selected':''}>بلا حد</option></select>
-    <div id="cusLimValBox" ${['percent','amount'].includes(cur)?'':'hidden'}><label>القيمة</label><input id="cusLimVal" type="number" step="0.001" min="0" inputmode="decimal" style="--fw:100%;" value="${k.overValue!=null?k.overValue:''}"></div>
-    <label>سبب التعديل *</label><input id="cusLimWhy" type="text" style="--fw:100%;" placeholder="مثال: عهدة ضيافة تحتاج هامشاً أكبر">
-    <div class="actions-row" style="margin-top:8px;"><button type="button" class="btn btn-primary btn-md" data-on-click="cusLimSave" data-on-click-args="${qa([k.id])}">حفظ حد الصرف</button></div></div>` : '<div class="file-hint">تعديل الحد لمدير النظام فقط.</div>';
+    <div class="cus-lim-row">
+      <div><label>نوع الحد</label><select id="cusLimMode" style="--fw:190px;" data-on-change="cusLimToggle"><option value="inherit" ${cur==='inherit'?'selected':''}>حسب إعداد الشركة</option><option value="percent" ${cur==='percent'?'selected':''}>نسبة من مبلغ العهدة</option><option value="amount" ${cur==='amount'?'selected':''}>مبلغ ثابت (د.ك)</option><option value="none" ${cur==='none'?'selected':''}>بلا حد</option></select></div>
+      <div id="cusLimValBox" ${['percent','amount'].includes(cur)?'':'hidden'}><label>القيمة</label><input id="cusLimVal" type="number" step="0.001" min="0" inputmode="decimal" style="--fw:110px;" value="${k.overValue!=null?k.overValue:''}"></div>
+      <div class="cus-lim-why"><label>سبب التعديل *</label><input id="cusLimWhy" type="text" style="--fw:100%;" placeholder="مثال: عهدة ضيافة تحتاج هامشاً أكبر"></div>
+    </div>
+    <div class="actions-row no-bar" style="margin-top:8px;"><button type="button" class="btn btn-primary btn-md" data-on-click="cusLimSave" data-on-click-args="${qa([k.id])}">حفظ حد الصرف</button></div></div>` : '<div class="file-hint">تعديل الحد لمدير النظام فقط.</div>';
   return `<div class="card cus-limit-card"><h2 style="margin:0 0 6px;font-size:16px;">حد الصرف فوق العهدة</h2><div>الحد الحالي: <b>${escH(e.txt)}</b> <span class="file-hint">(${e.own?'مخصّص لهذه العهدة':'من إعداد الشركة'})</span></div>${form}</div>`;
 }
 function cusLimToggle(){ const m=(document.getElementById('cusLimMode')||{}).value, b=document.getElementById('cusLimValBox'); if(b) b.hidden = !['percent','amount'].includes(m); }

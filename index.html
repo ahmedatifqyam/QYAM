@@ -1473,10 +1473,12 @@
   .cus-tabs{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 10px;}
   .cus-stp-btn{display:inline-flex;}
   .cus-stepper:not(.open){display:none;}
+  .cus-lines{table-layout:fixed;width:100%;} .cus-lines th,.cus-lines td{padding:8px 6px;font-size:13px;} .cus-lines td.cus-st{text-align:center;font-weight:700;} .cus-lines td.cus-st.st-ok{background:#E4F4E8;color:#15803d;} .cus-lines td.cus-st.st-bad{background:#FBDADA;color:#b91c1c;} .cus-lim-row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;} .cus-lim-row>div{flex:0 0 auto;} .cus-lim-row .cus-lim-why{flex:1 1 220px;min-width:180px;}
+  #cusPrintSheet .ps-lines{table-layout:fixed;width:100%;} #cusPrintSheet .ps-lines th:nth-child(1){width:7%;} #cusPrintSheet .ps-lines th:nth-child(3),#cusPrintSheet .ps-lines th:nth-child(4){width:14%;} #cusPrintSheet .ps-lines th:nth-child(5),#cusPrintSheet .ps-lines th:nth-child(6),#cusPrintSheet .ps-lines th:nth-child(7){width:13%;}
   .cus-lines td.cus-out{color:var(--red);font-weight:700;} .cus-lines td.cus-in{color:var(--green);font-weight:700;} .cus-lines td.cus-run{font-weight:700;} .cus-lines tr.cus-open-row td{background:#F6F4EE;}
   #cusPrintSheet .ps-out{color:#b91c1c;} #cusPrintSheet .ps-in{color:#15803d;}
   @media (max-width:700px){
-    .cus-lines td.cus-empty{display:none !important;}
+    .cus-lines td.cus-empty{display:none !important;} .cus-lines td.cus-st{text-align:right;}
     table.cus-lines, .cus-lines thead, .cus-lines tbody{display:block;width:100%;min-width:0 !important;}
     .cus-lines td::after{display:none !important;}
     .cus-lines thead{display:none;}
@@ -1573,6 +1575,6 @@ input.dtx::-webkit-calendar-picker-indicator{cursor:pointer;}
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.0.3/qrcode.min.js"></script>
-<script src="app.js?v=57e349857f"></script>
+<script src="app.js?v=0d872149f1"></script>
 </body>
 </html>
