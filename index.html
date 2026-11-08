@@ -252,7 +252,17 @@
   .header-actions-flex .stepper.cus-stepper{flex:1 1 300px;min-width:0;flex-wrap:nowrap;overflow-x:auto;padding-bottom:4px;}
   /* زر معطّل لسبب مكتوب: يبدو معطّلاً بوضوح (غير زر الانشغال المؤقت) */
   .btn[disabled][title]:not(.is-busy){opacity:.5;cursor:not-allowed;}
-  @media (max-width:700px){ .cus-cards{grid-template-columns:repeat(2,minmax(0,1fr));} .cus-card.main{grid-column:1 / -1;} }
+  @media (max-width:700px){
+    .cus-cards{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;} .cus-card{padding:6px 8px;} .cus-card.main{grid-column:1 / -1;}
+    .cus-card .cus-hint,.cus-card small{display:none;}
+    .cus-head{display:grid;grid-template-columns:1fr 1fr;gap:4px 10px;font-size:13px;} .cus-head .cus-title{grid-column:1 / -1;}
+    .cus-lines tr{display:grid !important;grid-template-columns:1fr 1fr 1fr;gap:0 8px;align-content:start;} .cus-lines td{grid-column:auto;padding:2px 0 !important;font-size:13px;}
+    .cus-lines td[data-l="الوصف"]{grid-column:1 / 3;font-weight:700;} .cus-lines td[data-l="الوصف"]::before,.cus-lines td[data-l="الحالة"]::before,.cus-lines td[data-l="النوع"]::before{display:none;}
+    .cus-lines td[data-l="الحالة"]{grid-column:3;justify-content:flex-end;} .cus-lines td[colspan]{grid-column:1 / -1;}
+    .cus-lines td:empty{display:none !important;} .cus-lines td[data-l="رقم الفاتورة"]{grid-column:auto;} .cus-lines td[data-l="الرصيد"]{grid-column:auto;}
+    .cus-lines td::before{flex:0 0 auto;font-size:11px;}
+    .cus-lines td{flex-direction:column !important;gap:0 !important;justify-content:flex-start !important;min-height:0 !important;}
+  }
   .req-card .badge.handed-badge,.badge.handed-badge{background:#FEF3C7;color:#92400E;border:1px solid #F5D27A;margin-top:3px;font-size:10.5px;white-space:normal;line-height:1.35;text-overflow:clip;}
   /* أزرار فلتر الطلبات: مربّع اللون والاسم والعدد، حد أيمن (بلون الحالة) وحد أسفل وظل خفيف، ارتفاع ٣٠ (استثناء مقصود من قاعدة ٤٠) وعرض واحد ثابت يُقاس على أطول زر */
   .dash-filt{justify-content:flex-start;}
@@ -1577,6 +1587,6 @@ input.dtx::-webkit-calendar-picker-indicator{cursor:pointer;}
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.0.3/qrcode.min.js"></script>
-<script src="app.js?v=b3ad86db26"></script>
+<script src="app.js?v=ee64cc86ff"></script>
 </body>
 </html>

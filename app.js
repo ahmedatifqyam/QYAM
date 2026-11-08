@@ -14721,8 +14721,8 @@ function renderCustodyPage(app){
       </div>`}
       ${docsOpen ? '' : cusOverLimitCardHtml(kc)}
       ${docsOpen ? '' : `${custodyDocsEntryHtml(kc)}${custodyLinesTableHtml(kc)}`}
-      <div class="history no-print"${docsOpen ? ' hidden' : ''}>
-        <h2>سجل الطلب والعهدة</h2>
+      <details class="history no-print"${docsOpen ? ' hidden' : ''}${window.innerWidth>760 ? ' open' : ''}>
+        <summary style="cursor:pointer;"><h2 style="display:inline;">سجل الطلب والعهدة</h2></summary>
         ${H.map(h=>`
           <div class="history-item">
             <div class="t">${h.time}</div>
@@ -14730,7 +14730,7 @@ function renderCustodyPage(app){
               ${h.note ? `<div style="color:var(--red);margin-top:2px;">${escH(h.note)}</div>` : ''}
             </div>
           </div>`).join('')}
-      </div>
+      </details>
     </div>`;
 }
 
