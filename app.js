@@ -14110,7 +14110,7 @@ function cusDocsOpen(id, idx){
   state.cusDocs = {custodyId:Number(id), idx:i, done:false}; state.cusImgs = state.cusImgs || {}; state.cusPics = null; state.cusImgIdx = 0;
   render(); window.scrollTo(0,0);
 }
-function cusDocsClose(){ state.cusDocs = null; state.cusPics = null; render(); window.scrollTo(0,0); }
+function cusDocsClose(){ state.cusDocs = null; state.cusPics = null; state.cusQueue = []; render(); window.scrollTo(0,0); }
 function cusDocsGo(i){ const d = state.cusDocs; if(!d) return; d.idx = Number(i); d.done = false; state.cusImgIdx = 0; state.cusPics = null; render(); window.scrollTo(0,0); }
 function cusDocsStep(delta){ const d = state.cusDocs; if(d) cusDocsGo(d.idx + Number(delta)); }
 function cusDocsBack(){ if(state.cusDocs){ state.cusDocs.done = false; render(); } }
@@ -14184,7 +14184,12 @@ function cusPicDel(i){
 }
 async function cusPicAdd(){
   const c = cusCurDoc(); if(!c || !c.editable || !state.cusPics) return;
-  const files = ['cusCam','cusGal'].flatMap(id=>[...(((document.getElementById(id)||{}).files)||[])]);
+  let files = ['cusCam','cusGal'].flatMap(id=>[...(((document.getElementById(id)||{}).files)||[])]);
+  if(!c.l && files.length>1){   // عدة صور من المعرض لسندات جديدة: الأولى لهذا السند والباقي في الانتظار
+    const rest = files.slice(1); files = files.slice(0,1); state.cusQueue = state.cusQueue || [];
+    for(const f of rest){ try{ state.cusQueue.push(f.type==='application/pdf' ? await readFileAsDataURL(f) : (await resizeImageFile(f,1400,1400)).dataUrl); }catch(e){} }
+    showToast('أُضيفت '+rest.length+' صورة إلى الانتظار: سند لكل صورة', 'success');
+  }
   ['cusCam','cusGal'].forEach(id=>{ const e = document.getElementById(id); if(e) e.value = ''; });
   const cp = state.cusPics;
   if(!cp.dirty && !cp.list.length && c.l && c.l.hasImage){ const raw = (state.cusImgs||{})[c.l.id]; if(raw && raw!=='x') cp.list = cusParseImgs(raw); }
@@ -14225,6 +14230,7 @@ function cusDocsHtml(kc){
     </div>`;
   const stLbl = {draft:'لم يُراجَع', accepted:'مقبول', rejected:'مرفوض'};
   let left;
+  const dr = (editable && !l) ? cusDraftGet(kc.id) : {};
   if(editable){
     left = `<div class="cus-doc-fields">
       <h2 style="margin:0 0 8px;font-size:16px;">${l ? 'تعديل السند '+(d.idx+1) : 'سند جديد'}</h2>
@@ -14235,13 +14241,17 @@ function cusDocsHtml(kc){
         <label class="btn btn-ghost btn-md cus-pickbtn">اختيار من المعرض<input id="cusGal" type="file" accept="image/*,application/pdf" multiple hidden data-on-change="cusPicAdd"></label>
       </div>
       <div class="file-hint">حتى ٥ صور للسند الواحد (فاتورة وإيصال مثلاً). تُصغَّر الصور تلقائياً.</div>
-      <label>النوع</label><select id="cusLineKind" style="--fw:100%;"><option value="expense" ${(l ? l.kind==='expense' : state.cusDocsKind!=='receipt') ? 'selected' : ''}>مصروف</option><option value="receipt" ${(l ? l.kind==='receipt' : state.cusDocsKind==='receipt') ? 'selected' : ''}>مقبوض</option></select>
-      <label>المبلغ (د.ك) *</label><input id="cusLineAmt" type="number" min="0.001" step="0.001" dir="ltr" style="--fw:100%;direction:ltr;text-align:center;" value="${l ? l.amount : ''}">
-      <label>الوصف *</label><input id="cusLineDesc" type="text" maxlength="300" style="--fw:100%;" value="${l ? escH(l.description) : ''}" placeholder="مثال: ضيافة اجتماع أولياء الأمور">
-      <label>رقم الفاتورة (اختياري)</label><input id="cusLineInv" type="text" maxlength="60" style="--fw:100%;" value="${l ? escH(l.invoiceNo) : ''}">
-      <label>التاريخ</label><input id="cusLineDate" type="date" style="--fw:100%;" value="${l ? l.lineDate : isoDatePlus(0)}" max="${isoDatePlus(0)}">
+      ${!l && (state.cusQueue||[]).length ? `<div class="note-box no-print">في الانتظار <b>${state.cusQueue.length}</b> سند مصوّر: بعد حفظ هذا السند يُحمَّل التالي تلقائياً.</div>` : ''}
+      <div class="cus-2col"><div><label>المبلغ (د.ك) *</label><input id="cusLineAmt" type="number" min="0.001" step="0.001" inputmode="decimal" dir="ltr" style="--fw:100%;direction:ltr;text-align:center;" value="${l ? l.amount : dr.amt}" data-on-change="cusDraftSave"></div>
+        <div><label>النوع</label><select id="cusLineKind" style="--fw:100%;" data-on-change="cusDraftSave"><option value="expense" ${(l ? l.kind==='expense' : (dr.kind||state.cusDocsKind)!=='receipt') ? 'selected' : ''}>مصروف</option><option value="receipt" ${(l ? l.kind==='receipt' : (dr.kind||state.cusDocsKind)==='receipt') ? 'selected' : ''}>مقبوض</option></select></div></div>
+      <label>الوصف *</label><input id="cusLineDesc" type="text" maxlength="300" list="cusDescList" autocomplete="off" style="--fw:100%;" value="${l ? escH(l.description) : escH(dr.desc)}" placeholder="مثال: ضيافة اجتماع أولياء الأمور" data-on-change="cusDescChange">
+      <datalist id="cusDescList">${cusDescSuggest().map(x=>`<option value="${escH(x)}"></option>`).join('')}</datalist>
+      <div class="cus-qchips no-print">${['ضيافة','مواصلات','وقود','مطبوعات','صيانة','مشتريات'].map(t=>`<button type="button" class="btn btn-ghost btn-sm" data-on-click="cusDescPick" data-on-click-args="${qa([t])}">${t}</button>`).join('')}</div>
+      <div class="cus-2col"><div><label>رقم الفاتورة (اختياري)</label><input id="cusLineInv" type="text" maxlength="60" style="--fw:100%;" value="${l ? escH(l.invoiceNo) : escH(dr.inv)}" data-on-change="cusDraftSave"></div>
+        <div><label>التاريخ</label><input id="cusLineDate" type="date" style="--fw:100%;" value="${l ? l.lineDate : (dr.date || isoDatePlus(0))}" max="${isoDatePlus(0)}" data-on-change="cusDraftSave"></div></div>
       <div class="cus-doc-btns actions-row no-print" data-bar-actions>
-        <button type="button" class="btn btn-primary btn-md" data-on-click="saveCusLine">${l ? 'حفظ والتالي' : 'حفظ السند'}</button>
+        <button type="button" class="btn btn-primary btn-md" data-on-click="saveCusLine" data-on-click-args="${qa(['next'])}">${l ? 'حفظ والتالي' : 'حفظ وإضافة آخر'}</button>
+        ${!l ? `<button type="button" class="btn btn-ghost btn-md" data-on-click="saveCusLine" data-on-click-args="${qa(['cam'])}" title="يحفظ هذا السند ويفتح الكاميرا للسند التالي">حفظ وتصوير التالي</button><button type="button" class="btn btn-ghost btn-md" data-on-click="saveCusLine" data-on-click-args="${qa(['close'])}">حفظ وإغلاق</button>` : ''}
         ${l && ['open','returned'].includes(kc.status) ? `<button type="button" class="btn btn-reject btn-md" data-on-click="deleteCusLine" data-on-click-args="${qa([l.id])}">حذف</button>` : ''}
       </div></div>`;
   } else if(l){
@@ -14282,8 +14292,29 @@ function cusDocsHtml(kc){
   return `<div class="cus-docs">
     <div class="cus-docs-head no-print"><b>${editable && !l ? 'تسجيل سند جديد' : 'المستندات'}</b><span class="cus-docs-cnt">المتبقي: ${cusAmtHtml(custodySums(kc).B)} د.ك</span>${reviewing ? `<span class="cus-docs-cnt">${kc.status==='acct_review' ? 'ارفض ما يحتاج تصحيحاً فقط' : 'راجعت '+(L.length-nd)+' من '+L.length}</span>` : ''}
       <button type="button" class="btn btn-ghost btn-sm" data-on-click="cusDocsClose">إغلاق صفحة المستندات</button></div>
-    <div class="cus-docs-body">${left}<div class="cus-doc-prev" id="cusDocPrev">${prevInner}</div></div>
+    <div class="cus-docs-body${editable ? ' cus-edit' : ''}">${left}<div class="cus-doc-prev" id="cusDocPrev">${prevInner}</div></div>
     ${strip}${acctBar}${dialog}</div>`;
+}
+function cusDescSuggest(){
+  const seen = new Set(), out = [];
+  [...(state.custodyLines||[])].sort((a,b)=>b.id-a.id).forEach(x=>{ const t = (x.description||'').trim(); if(t && !seen.has(t) && out.length<40){ seen.add(t); out.push(t); } });
+  return out;
+}
+function cusDraftKey(cid){ return 'qy_cusdraft_'+cid; }
+function cusDraftGet(cid){ try{ return JSON.parse(localStorage.getItem(cusDraftKey(cid))||'{}') || {}; }catch(e){ return {}; } }
+function cusDraftSave(){
+  const d = state.cusDocs; if(!d) return;
+  const g = id => (document.getElementById(id)||{}).value||'';
+  const kc = (state.custodies||[]).find(x=>x.id===d.custodyId), l = kc ? custodyLinesOf(kc)[d.idx] : null;
+  if(l) return;   // المسودة للسند الجديد فقط
+  try{ localStorage.setItem(cusDraftKey(d.custodyId), JSON.stringify({amt:g('cusLineAmt'), kind:g('cusLineKind'), desc:g('cusLineDesc'), inv:g('cusLineInv'), date:g('cusLineDate')})); }catch(e){}
+}
+function cusDraftClear(cid){ try{ localStorage.removeItem(cusDraftKey(cid)); }catch(e){} }
+function cusDescPick(t){ const e = document.getElementById('cusLineDesc'); if(!e) return; e.value = (e.value ? e.value.replace(/\s+$/,'')+' ' : '') + t; cusDescChange(); try{ e.focus(); }catch(x){} }
+function cusDescChange(){
+  const e = document.getElementById('cusLineDesc'), a = document.getElementById('cusLineAmt'); if(!e || !a) return;
+  if(!a.value){ const hit = [...(state.custodyLines||[])].sort((x,y)=>y.id-x.id).find(x=>(x.description||'').trim()===e.value.trim()); if(hit) a.value = hit.amount; }
+  cusDraftSave();
 }
 async function cusDocsReview(ok){
   const d = state.cusDocs; if(!d) return false;
@@ -14485,7 +14516,8 @@ async function cusOverConfirm(over, itemName, k){
     + (lim!=null ? '\nالحد المسموح فوق العهدة: ' + fmtKWDPlain(lim).replace(/[\u2066\u2069]/g,'') + ' د.ك.' : '')
     + '\nسيُحجز الزائد من رصيد البند ويُنبَّه المحاسب.\n\nهل أنت متأكد من صرف المبلغ من عهدة بند «' + itemName + '»؟');
 }
-async function saveCusLine(){
+async function saveCusLine(mode){
+  mode = (typeof mode==='string') ? mode : 'next';
   let f = state.cusLine;
   if(!f && state.cusDocs){
     const kc0 = (state.custodies||[]).find(x=>x.id===state.cusDocs.custodyId), l0 = kc0 ? custodyLinesOf(kc0)[state.cusDocs.idx] : null;
@@ -14502,6 +14534,10 @@ async function saveCusLine(){
     const old = f.id ? ((custodyLinesOf(k).find(x=>x.id===f.id)||{}).amount||0) : 0, sm0 = custodySums(k);
     const B2 = Math.round((sm0.B + (old - amt))*1000)/1000, bi = (state.budgetItems||[]).find(b=>b.id===k.budgetItemId);
     if(B2 < 0 && !(await cusOverConfirm(-B2, bi ? bi.name : '', k))) return false;
+  }
+  const inv0 = ((document.getElementById('cusLineInv')||{}).value||'').trim();
+  if(k && inv0 && (state.custodyLines||[]).some(x=>x.id!==f.id && x.custodyId===k.id && (x.invoiceNo||'').trim()===inv0 && Math.abs(x.amount-amt)<0.0005)){
+    if(!confirm('يوجد سند في هذه العهدة بنفس رقم الفاتورة والمبلغ. هل هذا تكرار؟\nاضغط «موافق» للحفظ رغم ذلك.')) return false;
   }
   const l = f.id ? (state.custodyLines||[]).find(x=>x.id===f.id) : null;
   const file = ((document.getElementById('cusLineImg')||{}).files||[])[0];
@@ -14523,8 +14559,13 @@ async function saveCusLine(){
   state.cusLine = null; state.activeCustodyId = cid;
   if(state.cusImgs) delete state.cusImgs[row.id];
   state.cusPics = null; state.cusImgIdx = 0;
+  if(!f.id) cusDraftClear(cid);
   if(state.cusDocs){ const pos = custodyLinesOf(k).findIndex(x=>x.id===row.id); state.cusDocs.idx = pos + 1; }   // ينتقل إلى السند التالي (أو سند جديد)
-  showToast(f.kind==='expense' ? 'تم تسجيل المصروف' : 'تم تسجيل المقبوض', 'success'); render();
+  if(!f.id && (state.cusQueue||[]).length && state.cusDocs){ state.cusPics = {key:0, list:[state.cusQueue.shift()], dirty:true}; }
+  showToast(f.kind==='expense' ? 'تم تسجيل المصروف' : 'تم تسجيل المقبوض', 'success');
+  if(mode==='close' && state.cusDocs){ state.cusDocs = null; state.cusQueue = []; }
+  render();
+  if(mode==='cam' && state.cusDocs) setTimeout(()=>{ const c = document.getElementById('cusCam'); if(c) try{ c.click(); }catch(e){} }, 300);
   return true;
 }
 async function deleteCusLine(id){
@@ -14997,7 +15038,7 @@ function renderDetail(app){
 }
 
 // ===================== أثر الضغط على الأزرار: انشغال + منع الضغط المزدوج + ✓ عند النجاح =====================
-const BUSY_FNS = ['cusDocsReview','cusDocsFinish','cusReopenLine','saveSysIdentity','reviewCusLine','cusReviewerDone','cusAcctDecide','cusSign','cusLimSave','settleCusBalance','saveCusLine','deleteCusLine','submitCusClose','setUserAvatar','removeUserAvatar','submitCustody','confirmCustodyReceipt','approve','markDisbursed','resubmit','confirmRejectModal','submitBankTransfer','confirmManualSign','saveAccount','addCompany','addCenter','addCustomRole','addUser','saveUserEdit','saveCenterEdit','saveCompanyEdit','saveSigDesignerConfig','restoreRequest','confirmDeletePassword'];
+const BUSY_FNS = ['cusDocsReview','cusDocsFinish','cusReopenLine','saveSysIdentity','reviewCusLine','cusReviewerDone','cusAcctDecide','cusSign','cusLimSave','cusDraftSave','cusDescPick','cusDescChange','settleCusBalance','saveCusLine','deleteCusLine','submitCusClose','setUserAvatar','removeUserAvatar','submitCustody','confirmCustodyReceipt','approve','markDisbursed','resubmit','confirmRejectModal','submitBankTransfer','confirmManualSign','saveAccount','addCompany','addCenter','addCustomRole','addUser','saveUserEdit','saveCenterEdit','saveCompanyEdit','saveSigDesignerConfig','restoreRequest','confirmDeletePassword'];
 const _busyLocks = {};
 function clickedButton(){
   const ev = window.event, t = ev && ev.target;
