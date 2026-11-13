@@ -2,7 +2,7 @@ const SUPABASE_URL = 'https://xisaigwntqeowathxpsr.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_xjXn7s_Jn8U3uVttzEgUFw_pGK5XJwH';
 const APP_VERSION = '1.7.0', APP_VERSION_DATE = '2026-11-13';
 // ساعات العمل: تُحسب من سجل التحديثات عند كل نشر (tools/workhours.py)، ويُضاف إليها تقدير مدير النظام لما قبل السجل وخارجه
-const APP_WORK = {hours:92, since:'2026-10-13', days:21, updates:219};
+const APP_WORK = {hours:132, since:'2026-09-07', days:46, updates:363};
 function appWorkBase(){ const v = Number((state.appSettings||{}).work_hours_base); return isFinite(v) && v>0 ? v : 0; }
 function appWorkTotal(){ return Math.round(appWorkBase() + APP_WORK.hours); }
 function appWorkTip(){ return `≈ ${appWorkTotal()} ساعة عمل: ${appWorkBase()} تقديرك لما قبل السجل وخارجه + ${APP_WORK.hours} من سجل التحديثات (منذ ${APP_WORK.since.split('-').reverse().join('-')}، ${APP_WORK.days} يوم عمل، ${APP_WORK.updates} تحديثاً)`; }
