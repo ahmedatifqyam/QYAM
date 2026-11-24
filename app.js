@@ -1,7 +1,7 @@
 const SUPABASE_URL = 'https://xisaigwntqeowathxpsr.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_xjXn7s_Jn8U3uVttzEgUFw_pGK5XJwH';
 // رقم الإصدار (رئيسي.ميزة.إصلاح): يزيد الأوسط مع كل ميزة جديدة والأخير مع كل إصلاح، والأول مع تغيير كبير. يُحدَّث مع كل نشر.
-const APP_VERSION = '1.55.0', APP_VERSION_DATE = '2026-11-24';
+const APP_VERSION = '1.56.0', APP_VERSION_DATE = '2026-11-24';
 // ساعات العمل: تُحسب من سجل التحديثات عند كل نشر (tools/workhours.py)، ويُضاف إليها تقدير مدير النظام لما قبل السجل وخارجه
 const APP_WORK = {hours:354, base:350, extra:3.7, at:'2026-11-14', since:'2026-09-05'};
 // مالك النظام: حساب مدير النظام صاحب الهاتف 98937472 — لا يُحذف، وساعات العمل تظهر له وحده (الحماية في القاعدة: qy_owner_guard)
@@ -8708,7 +8708,8 @@ function exportAnalyticsData(){
   const rows = state._analyticsRows || [], meta = state._analyticsMeta || {};
   const nm = r => r.kind==='co' ? '▪ ' + r.name + ' (المجموع)' : ' '.repeat((r.depth||0)*2) + r.name;
   return {title:'التقرير المالي حسب الجهة' + (meta.scope==='all' ? ' — كل الشركات' : meta.scope==='one' ? ' — ' + companyNameOf(state.currentCompanyId) : ''), period:[meta.selMonth && meta.selMonth!=='all' ? 'شهر '+meta.selMonth : '', meta.selYear ? 'سنة '+meta.selYear : ''].filter(Boolean).join(' · '),
-    head:['الجهة','عدد الطلبات المصروفة','إجمالي المصروف (د.ك)'], body: rows.map(r=>[nm(r), Number(r.count)||0, Number(r.total)||0]), numIdx:new Set([2])};
+    head:['الجهة','عدد الطلبات المصروفة','إجمالي المصروف (د.ك)'], body: rows.map(r=>[nm(r), Number(r.count)||0, Number(r.total)||0]), numIdx:new Set([2]),
+    flags: rows.map(r=>({sub: r.kind==='co'})), totRow:['الإجمالي', Number(meta.grandCount)||0, Number(meta.grandTotal)||0]};
 }
 function exportAnalyticsCSV(){
   const rows = state._analyticsRows || [];
@@ -8849,7 +8850,7 @@ function renderAnalytics(app){
     ${budgetCardHtml}
   `);
   state._analyticsRows = rows;
-  state._analyticsMeta = {selYear, selMonth, scope};
+  state._analyticsMeta = {selYear, selMonth, scope, grandTotal, grandCount};
 }
 
 // ===================== إسناد المعاملات =====================
@@ -18824,11 +18825,52 @@ function cxExportAllHtml(){
 }
 function cxExpAllSet(k, v){ const e = state.cx.expAll || (state.cx.expAll = {}); e[k] = v; }
 function cxSheetName(n, used){ let b = String(n||'مركز').replace(/[\\/?*\[\]:]/g,' ').trim().slice(0,28) || 'مركز', x = b, i = 2; while(used.has(x)) x = b.slice(0,25) + ' ' + (i++); used.add(x); return x; }
+// ---------- (1.56.0) تنسيق Excel الموحّد لكل التصدير في النظام ----------
+// العنوان عريض كبير، سطر الشركة والفترة، رأس الجدول كحلي بخط أبيض عريض، الصفوف بلونين متناوبين،
+// المحذوف مشطوب رمادي، رصيد أول المدة أصفر عريض، الصف الفرعي (مجموع جهة) عريض، الإجمالي عريض بخلفية وخط فاصل.
+const QY_XLS_NUM = '#,##0.000;[Red](#,##0.000)';
+const QY_XLS_ST = (()=>{
+  const B = {top:{style:'thin',color:{rgb:'D6DCE4'}}, bottom:{style:'thin',color:{rgb:'D6DCE4'}}, left:{style:'thin',color:{rgb:'D6DCE4'}}, right:{style:'thin',color:{rgb:'D6DCE4'}}};
+  const al = {horizontal:'right', vertical:'center', readingOrder:2};
+  return {
+    title:{font:{bold:true, sz:14, color:{rgb:'1F3A5F'}}, alignment:{horizontal:'right', readingOrder:2}},
+    sub:{font:{sz:11, color:{rgb:'555555'}}, alignment:{horizontal:'right', readingOrder:2}},
+    head:{font:{bold:true, color:{rgb:'FFFFFF'}}, fill:{patternType:'solid', fgColor:{rgb:'1F3A5F'}}, alignment:{horizontal:'center', vertical:'center', wrapText:true, readingOrder:2}, border:B},
+    a:{fill:{patternType:'solid', fgColor:{rgb:'FFFFFF'}}, alignment:al, border:B},
+    b:{fill:{patternType:'solid', fgColor:{rgb:'EEF3F9'}}, alignment:al, border:B},
+    open:{font:{bold:true}, fill:{patternType:'solid', fgColor:{rgb:'FFF4D6'}}, alignment:al, border:B},
+    sub2:{font:{bold:true, color:{rgb:'1F3A5F'}}, fill:{patternType:'solid', fgColor:{rgb:'E3EAF3'}}, alignment:al, border:B},
+    tot:{font:{bold:true, sz:12}, fill:{patternType:'solid', fgColor:{rgb:'D9E3F0'}}, alignment:al, border:Object.assign({}, B, {top:{style:'medium',color:{rgb:'1F3A5F'}}})}
+  };
+})();
+// o = {title, sub, head:[..], rows:[{cells:[..], v:محذوف, open:رصيد أول المدة, sub:صف فرعي}], numFrom: أول عمود رقمي (كل ما بعده رقمي) أو numIdx:Set, tot:[..]|null}
+function qyXlsSheet(X, o){
+  const h = o.head, rows = o.rows, isNum = j => o.numIdx ? o.numIdx.has(j) : (o.numFrom!=null && j >= o.numFrom);
+  const ws = X.utils.aoa_to_sheet([[o.title], [o.sub||''], [], h, ...rows.map(r=>r.cells), ...(o.tot ? [o.tot] : [])]);
+  const put = (r, c, st) => { const ref = X.utils.encode_cell({r, c}); if(!ws[ref]) ws[ref] = {t:'s', v:''}; ws[ref].s = st; if(isNum(c) && ws[ref].t==='n') ws[ref].z = QY_XLS_NUM; };
+  const cp = st => JSON.parse(JSON.stringify(st));
+  put(0, 0, QY_XLS_ST.title); put(1, 0, QY_XLS_ST.sub);
+  h.forEach((x,j)=>put(3, j, QY_XLS_ST.head));
+  let band = 0;
+  rows.forEach((r,i)=>{ const base = r.open ? QY_XLS_ST.open : r.sub ? QY_XLS_ST.sub2 : (band++ % 2 ? QY_XLS_ST.b : QY_XLS_ST.a);
+    h.forEach((x,j)=>{ const st = cp(base); if(r.v) st.font = Object.assign({}, st.font||{}, {strike:true, color:{rgb:'8A8A8A'}}); put(4+i, j, st); }); });
+  if(o.tot) h.forEach((x,j)=>put(4+rows.length, j, cp(QY_XLS_ST.tot)));
+  const w = j => String(j==null?'':j).length;
+  ws['!cols'] = h.map((x,j)=>({wch: Math.min(50, Math.max(w(x)+4, ...rows.slice(0,300).map(r=>w(r.cells[j])+2), isNum(j)?15:9))}));
+  ws['!rows'] = [{hpt:24}, {hpt:18}, {hpt:6}, {hpt:30}];
+  ws['!merges'] = [{s:{r:0,c:0}, e:{r:0,c:Math.max(0,h.length-1)}}, {s:{r:1,c:0}, e:{r:1,c:Math.max(0,h.length-1)}}];
+  ws['!views'] = [{RTL:true}];
+  return ws;
+}
+function qyXlsBook(X){ const wb = X.utils.book_new(); wb.Workbook = {Views:[{RTL:true}]}; return wb; }
 // مكتبة Excel بالتنسيق (خط عريض، خلفيات، شطب)؛ عند تعذّرها تُستعمل العادية بلا تنسيق
 async function qylLoadXlsxStyled(){
   if(window.__xlsxStyled && window.XLSX) return window.XLSX;
   try{ await new Promise((ok, ko)=>{ const sc = document.createElement('script'); sc.src = 'https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js'; sc.onload = ok; sc.onerror = ko; document.head.appendChild(sc); });
-    window.__xlsxStyled = true; return window.XLSX; }catch(e){ return qylLoadXlsx(); }
+    window.__xlsxStyled = true; return window.XLSX; }catch(e){
+    if(window.XLSX) return window.XLSX;
+    await new Promise((ok, ko)=>{ const sc = document.createElement('script'); sc.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js'; sc.onload = ok; sc.onerror = ko; document.head.appendChild(sc); });
+    return window.XLSX; }
 }
 async function cxExportAll(){
   const cxDd = v => { const m = String(v||'').match(/(\d{4})-(\d{2})-(\d{2})/); return m ? m[3]+'-'+m[2]+'-'+m[1] : ''; };
@@ -18890,34 +18932,10 @@ async function cxExportAll(){
     const openRow = c => ({open:true, cells: head.map((h,j)=> j===0 ? cxDd(from) : j===hc('المركز') ? c.name : j===hc('النوع') ? 'رصيد أول المدة' : j===hc('البيان') ? 'الرصيد قبل ' + cxDd(from) : j===head.length-1 ? openOf[c.id] : '')});
     let X; try{ X = await qylLoadXlsxStyled(); }catch(err){ showToast('تعذّر تحميل أداة Excel','error'); return; }
     const per = (from ? 'من ' + cxDd(from) : 'من البداية') + ' إلى ' + (to ? cxDd(to) : 'اليوم') + (kind!=='all' ? ' · ' + catName[kind] : '');
-    const co = qyCompanyName(), wb = X.utils.book_new(); wb.Workbook = {Views:[{RTL:true}]};
-    // التنسيق: عنوان عريض كبير، رأس الجدول بخلفية داكنة، الصفوف بلونين متناوبين، المحذوف مشطوب رمادي، رصيد أول المدة والمجموع بخلفية وخط عريض
-    const B = {top:{style:'thin',color:{rgb:'D6DCE4'}}, bottom:{style:'thin',color:{rgb:'D6DCE4'}}, left:{style:'thin',color:{rgb:'D6DCE4'}}, right:{style:'thin',color:{rgb:'D6DCE4'}}};
-    const ST = {
-      title:{font:{bold:true, sz:14, color:{rgb:'1F3A5F'}}, alignment:{horizontal:'right', readingOrder:2}},
-      sub:{font:{sz:11, color:{rgb:'555555'}}, alignment:{horizontal:'right', readingOrder:2}},
-      head:{font:{bold:true, color:{rgb:'FFFFFF'}}, fill:{patternType:'solid', fgColor:{rgb:'1F3A5F'}}, alignment:{horizontal:'center', vertical:'center', wrapText:true, readingOrder:2}, border:B},
-      a:{fill:{patternType:'solid', fgColor:{rgb:'FFFFFF'}}, alignment:{horizontal:'right', vertical:'center', readingOrder:2}, border:B},
-      b:{fill:{patternType:'solid', fgColor:{rgb:'EEF3F9'}}, alignment:{horizontal:'right', vertical:'center', readingOrder:2}, border:B},
-      open:{font:{bold:true}, fill:{patternType:'solid', fgColor:{rgb:'FFF4D6'}}, alignment:{horizontal:'right', readingOrder:2}, border:B},
-      tot:{font:{bold:true, sz:12}, fill:{patternType:'solid', fgColor:{rgb:'D9E3F0'}}, alignment:{horizontal:'right', readingOrder:2}, border:Object.assign({}, B, {top:{style:'medium',color:{rgb:'1F3A5F'}}})}
-    };
+    const co = qyCompanyName(), wb = qyXlsBook(X);
     const sheet = (title, h, rows, nfrom, totLabel) => {
       const tot = h.map((x,j)=> j===0 ? (totLabel||'المجموع') : (j>=nfrom ? Math.round(rows.filter(r=>!r.v).reduce((a,r)=>a + (typeof r.cells[j]==='number' ? r.cells[j] : 0), 0)*1000)/1000 : ''));
-      const ws = X.utils.aoa_to_sheet([[title], [co + ' · ' + per], [], h, ...rows.map(r=>r.cells), tot]);
-      const put = (r, c, st) => { const ref = X.utils.encode_cell({r, c}); if(!ws[ref]) ws[ref] = {t:'s', v:''}; ws[ref].s = st; };
-      put(0, 0, ST.title); put(1, 0, ST.sub);
-      h.forEach((x,j)=>put(3, j, ST.head));
-      rows.forEach((r,i)=>{ const base = r.open ? ST.open : (i % 2 ? ST.b : ST.a);
-        h.forEach((x,j)=>{ const st = JSON.parse(JSON.stringify(base)); if(r.v) st.font = Object.assign({}, st.font||{}, {strike:true, color:{rgb:'8A8A8A'}});
-          if(j>=nfrom) st.alignment = Object.assign({}, st.alignment, {horizontal:'right'}); put(4+i, j, st);
-          const c = ws[X.utils.encode_cell({r:4+i, c:j})]; if(j>=nfrom && c && c.t==='n') c.z = '#,##0.000;[Red](#,##0.000)'; }); });
-      h.forEach((x,j)=>{ const st = JSON.parse(JSON.stringify(ST.tot)); if(j>=nfrom) st.alignment = Object.assign({}, st.alignment, {horizontal:'right'}); put(4+rows.length, j, st);
-        const c = ws[X.utils.encode_cell({r:4+rows.length, c:j})]; if(j>=nfrom && c && c.t==='n') c.z = '#,##0.000;[Red](#,##0.000)'; });
-      ws['!cols'] = h.map((x,j)=>({wch: Math.min(50, Math.max(String(x).length+4, ...rows.slice(0,300).map(r=>String(r.cells[j]==null?'':r.cells[j]).length+2), j>=nfrom?15:9))}));
-      ws['!rows'] = [{hpt:24}, {hpt:18}, {hpt:6}, {hpt:30}];
-      ws['!merges'] = [{s:{r:0,c:0}, e:{r:0,c:h.length-1}}, {s:{r:1,c:0}, e:{r:1,c:h.length-1}}];
-      ws['!views'] = [{RTL:true}]; return ws; };
+      return qyXlsSheet(X, {title, sub: co + ' · ' + per, head:h, rows, numFrom:nfrom, tot}); };
     // الملخص
     const sh = ['المركز', ...(from && kind==='all' ? ['رصيد أول المدة'] : []), 'البوابة (صافٍ)','الدعم (صافٍ)','إيرادات أخرى (صافٍ)','رسوم البوابة','حصة الشركة','المصروفات','الترحيل','صافي حركة الفترة', ...(from && kind==='all' ? ['رصيد آخر المدة'] : []), 'الرصيد الحالي'];
     const sum = (arr, f) => cxR3(arr.reduce((a,x)=>a + Number(f(x)||0), 0));
@@ -18938,7 +18956,7 @@ async function cxExportAll(){
         const h = ['المركز','في النظام', ...cols];
         const body = rows.map(r=>{ const m = mapFn(r); return {cells:[m.center, m.inSys, ...cols.map(k=>{ const v = r[k]; return numCols.includes(k) && v!=='' && !isNaN(Number(v)) ? Number(v) : v; })]}; });
         const ws = sheet(title, h, body, h.length);   // بلا مجاميع رقمية افتراضية
-        cols.forEach((k,i)=>{ if(!numCols.includes(k)) return; body.forEach((r,ri)=>{ const c = ws[X.utils.encode_cell({r:4+ri, c:2+i})]; if(c && c.t==='n'){ c.z = '#,##0.000;[Red](#,##0.000)'; if(c.s) c.s.alignment = Object.assign({}, c.s.alignment, {horizontal:'right'}); } }); });
+        cols.forEach((k,i)=>{ if(!numCols.includes(k)) return; body.forEach((r,ri)=>{ const c = ws[X.utils.encode_cell({r:4+ri, c:2+i})]; if(c && c.t==='n') c.z = QY_XLS_NUM; }); });
         return ws; };
       if(rawSt.length) X.utils.book_append_sheet(wb, rawSheet('كشف حساب البوابة (الملف الأصلي)', rawSt, ['card','refund_id','destination_id'], r=>{
         const desc = String(r.description||''); if(!/^sale/i.test(desc)) return {center:'', inSys:/^fee/i.test(desc) ? 'لا (رسوم)' : /^transfer/i.test(desc) ? 'لا (تحويل)' : 'لا'};
@@ -21945,10 +21963,12 @@ function qylData(key, onlySel){
   let title = el.getAttribute('data-qyl-title') || (h2 ? h2.textContent.trim() : '') || document.title;
   if(s.kind && s.kind!=='all'){ try{ const k = JSON.parse(el.getAttribute('data-qyl-kinds')||'[]').find(x=>x[0]===s.kind); if(k) title += ' — ' + k[1]; }catch(e){} }
   if(onlySel) title += ' — المحدد (' + rows.length + ')';
-  return {title, period: hasDate ? rg.label : '', head, body, numIdx, nosum, company: qyCompanyName()};
+  const flags = rows.map(r=>({v: r.classList.contains('cx-void') || /line-through/.test(r.getAttribute('style')||'')}));
+  return {title, period: hasDate ? rg.label : '', head, body, numIdx, nosum, flags, company: qyCompanyName()};
 }
 function qylFileName(d){ return (d.title + (d.period ? ' - ' + d.period : '')).replace(/[‎‏⁦-⁩؜]/g,'').replace(/[\\/:*?"<>|]+/g,' ').trim() || 'تصدير'; }
 async function qylLoadXlsx(){
+  try{ return await qylLoadXlsxStyled(); }catch(e){}   // (1.56.0) المكتبة المنسّقة أولاً (تقرأ وتكتب مثل العادية)
   if(window.XLSX) return window.XLSX;
   await new Promise((ok, ko)=>{ const sc = document.createElement('script'); sc.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js'; sc.onload = ok; sc.onerror = ko; document.head.appendChild(sc); });
   return window.XLSX;
@@ -21958,7 +21978,7 @@ async function qyExportData(fmt, d){
   if(!d.body || !d.body.length){ showToast('لا توجد سجلات في الفترة المختارة','error'); return; }
   const numIdx = d.numIdx || new Set(), nosum = d.nosum || [];
   const tot = d.head.map((h,j)=>numIdx.has(j) ? Math.round(d.body.reduce((a,r,ri)=>a + (!nosum[ri] && typeof r[j]==='number' ? r[j] : 0),0)*1000)/1000 : '');
-  const totRow = d.noTotal ? null : (tot.some(v=>v!=='') ? d.head.map((h,j)=> j===0 ? 'المجموع' : tot[j]) : null);
+  const totRow = d.totRow || (d.noTotal ? null : (tot.some(v=>v!=='') ? d.head.map((h,j)=> j===0 ? 'المجموع' : tot[j]) : null));
   const company = d.company==null ? qyCompanyName() : d.company;
   if(fmt==='csv'){
     const q = v => { const t = String(v==null?'':v); return /[",\n]/.test(t) ? '"'+t.replace(/"/g,'""')+'"' : t; };
@@ -21969,13 +21989,10 @@ async function qyExportData(fmt, d){
   }
   if(fmt==='xlsx'){
     let X; try{ X = await qylLoadXlsx(); }catch(e){ showToast('تعذّر تحميل أداة Excel، جرّب CSV','error'); return; }
-    const aoa = [[d.title], [company + (d.period ? ' · الفترة: ' + d.period : '')], [], d.head, ...d.body, ...(totRow ? [totRow] : [])];
-    const ws = X.utils.aoa_to_sheet(aoa);
-    const r0 = 3, nRows = d.body.length + (totRow ? 1 : 0);
-    for(let r=r0+1; r<=r0+nRows; r++) numIdx.forEach(j=>{ const c = ws[X.utils.encode_cell({r, c:j})]; if(c && c.t==='n') c.z = '#,##0.000;[Red](#,##0.000)'; });
-    ws['!cols'] = d.head.map((h,j)=>({wch: Math.min(60, Math.max(String(h).length+2, ...d.body.slice(0,200).map(r=>String(r[j]==null?'':r[j]).length+2), numIdx.has(j)?14:8))}));
-    ws['!merges'] = [{s:{r:0,c:0}, e:{r:0,c:Math.max(0,d.head.length-1)}}, {s:{r:1,c:0}, e:{r:1,c:Math.max(0,d.head.length-1)}}];
-    const wb = X.utils.book_new(); wb.Workbook = {Views:[{RTL:true}]};
+    const flags = d.flags || [];
+    const ws = qyXlsSheet(X, {title:d.title, sub: company + (d.period ? ' · الفترة: ' + d.period : ''), head:d.head, numIdx,
+      rows: d.body.map((r,i)=>({cells:r, v:!!(flags[i]||{}).v, sub:!!(flags[i]||{}).sub, open:!!(flags[i]||{}).open})), tot: totRow});
+    const wb = qyXlsBook(X);
     X.utils.book_append_sheet(wb, ws, 'البيانات');
     X.writeFile(wb, qylFileName(d)+'.xlsx');
     return;
@@ -21984,9 +22001,11 @@ async function qyExportData(fmt, d){
   let box = document.getElementById('qylPrintSheet'); if(box) box.remove();
   box = document.createElement('div'); box.id = 'qylPrintSheet'; box.dir = 'rtl';
   const cell = (v,j) => numIdx.has(j) ? `<td class="qp-n">${v===''||v==null ? '' : fmtKWDHtml(v)}</td>` : `<td>${escH(String(v==null?'':v))}</td>`;
+  const fl = d.flags || []; let band = 0;
+  const trCls = i => { const f = fl[i]||{}; return [f.v ? 'qp-void' : '', f.sub ? 'qp-sub2' : f.open ? 'qp-open' : (band++ % 2 ? 'qp-b' : '')].filter(Boolean).join(' '); };
   box.innerHTML = `<h1>${escH(d.title)}</h1><div class="qp-sub">${escH(company)}${d.period ? ' · الفترة: '+escH(d.period) : ''} · طُبع ${dmyStr(qylToday())} · ${d.body.length} سجل</div>
-    <table><thead><tr>${d.head.map(h=>`<th>${escH(h)}</th>`).join('')}</tr></thead><tbody>${d.body.map(r=>`<tr>${r.map(cell).join('')}</tr>`).join('')}</tbody>
-    ${totRow ? `<tfoot><tr>${totRow.map((v,j)=> j===0 ? '<td><b>المجموع</b></td>' : cell(v,j)).join('')}</tr></tfoot>` : ''}</table>`;
+    <table><thead><tr>${d.head.map(h=>`<th>${escH(h)}</th>`).join('')}</tr></thead><tbody>${d.body.map((r,i)=>`<tr class="${trCls(i)}">${r.map(cell).join('')}</tr>`).join('')}</tbody>
+    ${totRow ? `<tfoot><tr>${totRow.map((v,j)=> j===0 ? `<td>${escH(String(v))}</td>` : cell(v,j)).join('')}</tr></tfoot>` : ''}</table>`;
   document.body.appendChild(box); document.body.classList.add('printing-qyl');
   const t0 = document.title; document.title = qylFileName(d);
   const done = () => { document.body.classList.remove('printing-qyl'); const b = document.getElementById('qylPrintSheet'); if(b) b.remove(); document.title = t0; window.removeEventListener('afterprint', done); };
@@ -22368,16 +22387,15 @@ async function glExportMonth(){
   const g = glSt(), rows = g.journal||[]; if(!rows.length){ showToast('لا حركات في هذا الشهر','error'); return; }
   let X; try{ X = await qylLoadXlsx(); }catch(e){ showToast('تعذّر تحميل أداة Excel','error'); return; }
   const s = glSummary(rows), co = currentCompanyName(), ml = glMonthLabel(g.month);
-  const num = (ws, cols, r0, n) => { for(let r=r0; r<r0+n; r++) cols.forEach(c=>{ const cell = ws[X.utils.encode_cell({r, c})]; if(cell && cell.t==='n') cell.z = '#,##0.000;[Red](#,##0.000)'; }); };
   const head1 = ['التاريخ','المرجع','المصدر','البيان','رقم الحساب','اسم الحساب','مدين','دائن','ملاحظة'];
-  const b1 = rows.map(r=>[dmyStr(r.entry_date).replace(/[⁦-⁩‏]/g,''), r.ref||'', r.source||'', r.description||'', r.account_code||'', r.account_code ? (r.account_name||'') : 'بلا حساب', Number(r.debit)||0, Number(r.credit)||0, r.flag||'']);
-  const ws1 = X.utils.aoa_to_sheet([['كشف الحركات الشهري — ' + ml], [co + ' · ' + s.entries + ' قيد'], [], head1, ...b1, ['المجموع','','','','','', s.dr, s.cr, '']]);
-  num(ws1, [6,7], 4, b1.length+1); ws1['!cols'] = [{wch:12},{wch:16},{wch:16},{wch:48},{wch:12},{wch:34},{wch:14},{wch:14},{wch:16}];
+  const b1 = rows.map(r=>({cells:[dmyStr(r.entry_date).replace(/[⁦-⁩‏]/g,''), r.ref||'', r.source||'', r.description||'', r.account_code||'', r.account_code ? (r.account_name||'') : 'بلا حساب', Number(r.debit)||0, Number(r.credit)||0, r.flag||'']}));
+  const ws1 = qyXlsSheet(X, {title:'كشف الحركات الشهري — ' + ml, sub: co + ' · ' + s.entries + ' قيد', head:head1, rows:b1, numIdx:new Set([6,7]), tot:['المجموع','','','','','', s.dr, s.cr, '']});
+  ws1['!cols'] = [{wch:12},{wch:16},{wch:16},{wch:48},{wch:12},{wch:34},{wch:15},{wch:15},{wch:16}];
   const head2 = ['رقم الحساب','اسم الحساب','مدين','دائن','الصافي'];
-  const b2 = s.accts.map(a=>[a.code, a.code ? a.name : 'بلا حساب', Math.round(a.dr*1000)/1000, Math.round(a.cr*1000)/1000, Math.round((a.dr-a.cr)*1000)/1000]);
-  const ws2 = X.utils.aoa_to_sheet([['مجاميع الحسابات — ' + ml], [co], [], head2, ...b2, ['المجموع','', s.dr, s.cr, Math.round((s.dr-s.cr)*1000)/1000]]);
-  num(ws2, [2,3,4], 4, b2.length+1); ws2['!cols'] = [{wch:12},{wch:36},{wch:14},{wch:14},{wch:14}];
-  const wb = X.utils.book_new(); wb.Workbook = {Views:[{RTL:true}]};
+  const b2 = s.accts.map(a=>({cells:[a.code, a.code ? a.name : 'بلا حساب', Math.round(a.dr*1000)/1000, Math.round(a.cr*1000)/1000, Math.round((a.dr-a.cr)*1000)/1000]}));
+  const ws2 = qyXlsSheet(X, {title:'مجاميع الحسابات — ' + ml, sub: co, head:head2, rows:b2, numFrom:2, tot:['المجموع','', s.dr, s.cr, Math.round((s.dr-s.cr)*1000)/1000]});
+  ws2['!cols'] = [{wch:12},{wch:36},{wch:15},{wch:15},{wch:15}];
+  const wb = qyXlsBook(X);
   X.utils.book_append_sheet(wb, ws1, 'القيود'); X.utils.book_append_sheet(wb, ws2, 'مجاميع الحسابات');
   X.writeFile(wb, `كشف الحركات ${ml} - ${co}.xlsx`.replace(/[\\/:*?"<>|]+/g,' '));
   const {error} = await db.rpc('qy_gl_mark_exported', {p_company:glCid(), p_month:g.month+'-01', p_entries:s.entries, p_total:s.dr, p_unlinked:s.unlE});
