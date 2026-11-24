@@ -2183,6 +2183,7 @@ input.dtx{position:relative;} input.dtx::-webkit-calendar-picker-indicator{posit
     /* بطاقة الحركة: التاريخ والصافي أعلى، ثم البيان والدافع، ثم المبالغ */
     #app.cxv table.cx-ledger tr{grid-template-columns:repeat(3,minmax(0,1fr));}
     #app.cxv table.cx-ledger td:nth-child(1){order:1;grid-column:span 2;}
+    #app.cxv table.cx-ledger td[data-label="تاريخ الفاتورة"]{order:1;}
     #app.cxv table.cx-ledger td[data-label="الصافي"]{order:2;}
     #app.cxv table.cx-ledger td.cx-desc{order:3;}
     #app.cxv table.cx-ledger td.cx-payer{order:4;grid-column:1 / -1;}
@@ -3712,6 +3713,6 @@ input.dtx{position:relative;} input.dtx::-webkit-calendar-picker-indicator{posit
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.0.3/qrcode.min.js"></script>
-<script src="app.js?v=x"></script>
+<script src="app.js?v=20d4ae4601"></script>
 </body>
 </html>

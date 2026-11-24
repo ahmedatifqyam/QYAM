@@ -1,7 +1,7 @@
 const SUPABASE_URL = 'https://xisaigwntqeowathxpsr.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_xjXn7s_Jn8U3uVttzEgUFw_pGK5XJwH';
 // رقم الإصدار (رئيسي.ميزة.إصلاح): يزيد الأوسط مع كل ميزة جديدة والأخير مع كل إصلاح، والأول مع تغيير كبير. يُحدَّث مع كل نشر.
-const APP_VERSION = '1.54.1', APP_VERSION_DATE = '2026-11-24';
+const APP_VERSION = '1.55.0', APP_VERSION_DATE = '2026-11-24';
 // ساعات العمل: تُحسب من سجل التحديثات عند كل نشر (tools/workhours.py)، ويُضاف إليها تقدير مدير النظام لما قبل السجل وخارجه
 const APP_WORK = {hours:354, base:350, extra:3.7, at:'2026-11-14', since:'2026-09-05'};
 // مالك النظام: حساب مدير النظام صاحب الهاتف 98937472 — لا يُحذف، وساعات العمل تظهر له وحده (الحماية في القاعدة: qy_owner_guard)
@@ -18595,8 +18595,14 @@ function cxLedgerFiltered(){
     return arHas([x.purpose, x.note, x.agent, x.method, x.receipt, p.payer_name, p.payer_phone, CX_LEDGER_KIND[x.kind]], q);
   });
 }
+// (1.55.0) تاريخ إنشاء فاتورة البوابة من رقمها؛ يُعلَّم إن كانت من شهر غير شهر الدفع
+function cxInvDateHtml(x){
+  const d = x.order_ref ? gwRefDate(x.order_ref) : ''; if(!d) return '—';
+  const other = d.slice(0,7) !== String(x.entry_date||'').slice(0,7);
+  return other ? `<span style="color:#b45309;font-weight:700" title="الفاتورة من شهر غير شهر الدفع">${cxDate(d)}</span>` : cxDate(d);
+}
 function cxLedgerRowsHtml(){
-  const imp = cxIsImporter(), fin = cxIsFin(), canTr = cxCanTransfer(), act = fin || canTr, ic = cxShowItemCol(), cols = 7 + (imp?1:0) + (act?1:0) + (ic?1:0);
+  const imp = cxIsImporter(), fin = cxIsFin(), canTr = cxCanTransfer(), act = fin || canTr, ic = cxShowItemCol(), cols = 8 + (imp?1:0) + (act?1:0) + (ic?1:0);
   const all = cxLedgerFiltered();
   if(!all.length) return `<tr class="cx-empty"><td colspan="${cols}">${state.cx.ledgerLoaded ? 'لا توجد حركات مطابقة.' : 'جارٍ التحميل…'}</td></tr>`;
   return all.map(x=>{
@@ -18605,7 +18611,8 @@ function cxLedgerRowsHtml(){
     const tip = [x.agent ? 'المنشئ: '+x.agent : '', x.receipt ? 'الإيصال: '+x.receipt : '', x.note ? 'ملاحظة: '+x.note : ''].filter(Boolean).join('\n');
     const mvOut = x.voided && x.moved_to_id, mvIn = !x.voided && x.moved_from_id;
     return `<tr class="${x.voided?'cx-void':''}${x._req?' cx-exp-row':''}" data-id="${escH(String(x.id))}" data-kind="${cxCatOf(x)}" data-date="${escH(String(x.entry_date||'').slice(0,10))}" ${x.voided?'data-nosum':''} ${tip?`title="${escH(tip)}"`:''}>
-      <td data-label="التاريخ" class="cx-nowrap">${cxDate(x.entry_date)}</td>
+      <td data-label="تاريخ الدفع" class="cx-nowrap">${cxDate(x.entry_date)}</td>
+      <td data-label="تاريخ الفاتورة" class="cx-nowrap">${cxInvDateHtml(x)}</td>
       ${ic ? `<td data-label="البند" class="cx-item"><div class="cx-clip">${x.center_id===state.cx.centerId ? 'المركز نفسه' : escH(cxCenterName(x.center_id))}</div></td>` : ''}
       <td data-label="البيان" class="cx-desc"><div class="cx-clip">${escH(x.purpose || CX_LEDGER_KIND[x.kind] || '')}</div><div class="cx-meta">${escH(meta)}${mvOut?' · <span class="cx-tag-red">منقولة</span>':x.voided?' · <span class="cx-tag-red">محذوفة</span>':''}${mvIn?' · <b class="cx-mv-in">منقولة إليه</b>':''}</div>${mvIn && x.note ? `<div class="cx-meta">${escH(x.note)}</div>` : ''}${x.voided ? `<div class="cx-meta cx-void-note">${mvOut?'نُقلت':'حُذفت'}${x.voided_by ? ' بواسطة ' + escH(prjUserName(x.voided_by)||'') : ''}${x.voided_at ? ' في ' + cxDate(String(x.voided_at).slice(0,10)) : ''}${x.void_reason ? ' — السبب: ' + escH(x.void_reason) : ''}</div>` : x.restored_at ? `<div class="cx-meta">استُرجعت بواسطة ${escH(prjUserName(x.restored_by)||'')} في ${cxDate(String(x.restored_at).slice(0,10))}${x.void_reason ? ' (كان سبب الحذف: ' + escH(x.void_reason) + ')' : ''}</div>` : ''}</td>
       ${imp ? `<td data-label="الدافع" class="cx-payer"><div class="cx-clip" dir="auto">${escH(p.payer_name||'—')}</div>${p.payer_phone ? `<div class="cx-meta"><bdi dir="ltr">${escH(p.payer_phone)}</bdi></div>` : ''}</td>` : ''}
@@ -18753,7 +18760,7 @@ function cxCenterDetailHtml(){
         ${state.cx.itemId && canTr && has && !state.cx.showTransfer ? `<button class="btn btn-ghost btn-md" data-on-click="cxTransferToggle">ترحيل رصيد</button>` : ''}
         ${fin && !state.cx.showEntry ? `<button class="btn btn-primary btn-md" data-on-click="cxEntryToggle">+ تسجيل حركة</button>` : ''}</div></div>
       ${fin ? cxMvBulkTplHtml() : ''}
-      <table class="exec-table cx-tbl cx-ledger" data-qyl="cxLedger" ${fin?'data-qyl-bulk="cxMvTpl"':''} data-qyl-kinds='${escH(JSON.stringify(CX_CATS))}' data-qyl-title="دفتر ${escH(c.name)}"><thead><tr><th>التاريخ</th>${ic?'<th>البند</th>':''}<th>البيان</th>${imp?'<th>الدافع</th>':''}<th class="num" data-sum>المبلغ</th><th class="num" data-sum>الرسوم</th><th class="num" data-sum>حصة الشركة</th><th class="num" data-sum>الصافي</th>${fin||canTr?'<th></th>':''}</tr></thead>
+      <table class="exec-table cx-tbl cx-ledger" data-qyl="cxLedger" ${fin?'data-qyl-bulk="cxMvTpl"':''} data-qyl-kinds='${escH(JSON.stringify(CX_CATS))}' data-qyl-title="دفتر ${escH(c.name)}"><thead><tr><th>تاريخ الدفع</th><th title="تاريخ إنشاء فاتورة بوابة الدفع (من رقمها). المحاسب يحسب الاشتراك بهذا التاريخ، والنظام بتاريخ الدفع">تاريخ الفاتورة</th>${ic?'<th>البند</th>':''}<th>البيان</th>${imp?'<th>الدافع</th>':''}<th class="num" data-sum>المبلغ</th><th class="num" data-sum>الرسوم</th><th class="num" data-sum>حصة الشركة</th><th class="num" data-sum>الصافي</th>${fin||canTr?'<th></th>':''}</tr></thead>
       <tbody id="cxLedgerBody">${cxLedgerRowsHtml()}</tbody></table>
     </div>
     ${cxSettingsFoldHtml()}
@@ -21277,6 +21284,14 @@ function gwPick(kind, el){
 }
 function gwClearFile(kind){ const im = state.cx.imp; im[kind==='statement'?'stmt':'bills'] = null; im.rows = null; im.info = null; render(); }
 function gwSetAccount(v){ state.cx.imp.accountId = v; if(state.cx.imp.rows) render(); }
+async function gwSetAccCenter(id, centerId){
+  const a = (state.cx.gwAccounts||[]).find(x=>x.id===id); if(!a) return;
+  const nm = centerId ? cxCenterName(centerId) : '';
+  if(!confirm(centerId ? `جعل كل دفعات «${a.name}» لمركز «${nm}»؟\n\nيسري على الرفعات القادمة لهذا الحساب، ولا يغيّر ما سُجّل سابقاً.` : `إرجاع «${a.name}» حساباً مشتركاً يوزّع الدفعات حسب الجهات؟`)){ render(); return; }
+  const r = await db.from('gateway_accounts').update({center_id:centerId||null}).eq('id', id);
+  if(!(await dbCheck(r,'حفظ مركز الحساب'))) return;
+  showToast('تم الحفظ','success'); await gwLoad();
+}
 async function gwAddAccount(){
   const n = ((document.getElementById('gw_acc_name')||{}).value||'').trim(); if(!n){ showToast('أدخل اسم الحساب','error'); return; }
   const r = await db.from('gateway_accounts').insert({company_id:cxCid(), name:n});
@@ -21409,7 +21424,8 @@ function gwSetRange(which, v){ const im = state.cx.imp; if(!im || !im.info || !v
 // رقم الطلب في الكشف = رقم الفاتورة، ومنه تاريخ إنشائها: خانتان ثم YYYYMMDD
 function gwRefDate(ref){ const m = String(ref||'').trim().match(/^\d{2}(20\d{2})(\d{2})(\d{2})\d+$/); return m ? `${m[1]}-${m[2]}-${m[3]}` : ''; }
 // القفل: آخر رصيد افتتاحي في الشركة، ولكل مركز تاريخه
-function gwLockDate(centerId){ const o = state.cx.openDates||{}; if(centerId) return o[centerId] || ''; return Object.values(o).sort().pop() || ''; }
+// (1.55.0) بلا مركز: أقدم رصيد افتتاحي في الشركة (لا أحدثها)، فلا تسقط دفعة لم يُعرف مركزها بعد؛ تذهب للمعلّق وتُقفل عند تصنيفها بتاريخ مركزها
+function gwLockDate(centerId){ const o = state.cx.openDates||{}; if(centerId) return o[centerId] || ''; return Object.values(o).sort()[0] || ''; }
 function gwBillsMerged(){ const m = Object.assign({}, state.cx.gwBills||{}); const im = state.cx.imp; if(im && im.bills) im.bills.rows.forEach(b=>{ const k = String(b.invoice_number||'').trim(); if(k) m[k] = b; }); return m; }
 function gwBillInfo(b){ return {agent:b.agent||'', purpose:b.description||'', payer_name:[b.customer_first_name, b.customer_last_name].filter(Boolean).join(' '), payer_phone:b.customer_phone||''}; }
 // الحركات المعلّقة بلا جهة التي صار لها فاتورة
@@ -21463,7 +21479,9 @@ async function gwCheckDup(list){
   }
   return set;
 }
-function gwRowCenter(x){ return x.agent ? gwAgentCenter(x.agent) : null; }
+// (1.55.0) حساب بوابة خاص بمركز: كل دفعاته لمركزه، بلا ربط جهات
+function gwAccCenter(){ const im = state.cx.imp, a = (state.cx.gwAccounts||[]).find(x=>x.id===(im && im.accountId)); return a && a.center_id && (state.centers||[]).some(c=>c.id===a.center_id && c.companyId===cxCid()) ? a.center_id : null; }
+function gwRowCenter(x){ return gwAccCenter() || (x.agent ? gwAgentCenter(x.agent) : null); }
 function gwCalc(x){
   const cid = gwRowCenter(x), c = (state.centers||[]).find(t=>t.id===cid);
   if(!c) return {center:null, share:null, net:null, pct:null};
@@ -21637,7 +21655,10 @@ function renderGwImport(app){
       </div>
       <div class="cx-actions"><button class="btn btn-primary btn-md" data-on-click="gwSaveSettings">حفظ</button></div>
       <h3 class="cx-h3">حسابات البوابة <span class="file-hint">لكل حساب تاجر مستقل (مثل حساب ثانٍ لمركز) — يظهر الاختيار عند وجود أكثر من حساب</span></h3>
-      <div class="cx-chips">${accs.map(a=>`<span class="cx-chip"><b>${escH(a.name)}</b></span>`).join('') || '<span class="file-hint">لا يوجد</span>'}</div>
+      <table class="exec-table cx-tbl" data-qyl="gwAccs" data-qyl-title="حسابات البوابة"><thead><tr><th>الحساب</th><th>مركز الحساب</th></tr></thead><tbody>
+      ${accs.map(a=>`<tr><td data-label="الحساب"><b>${escH(a.name)}</b></td><td data-label="مركز الحساب"><select class="cx-sel-sm" data-on-change="gwSetAccCenter" data-on-change-args="${qa([a.id, QA.v])}"><option value="">مشترك — حسب ربط الجهات</option>${gwCentersOptions(a.center_id||'')}</select></td></tr>`).join('') || '<tr class="cx-empty"><td colspan="2">لا يوجد</td></tr>'}
+      </tbody></table>
+      <p class="file-hint">حساب خاص بمركز: كل دفعاته تذهب إلى مركزه مباشرة دون ربط الجهات، وملف الفواتير له اختياري (للغرض واسم الدافع). الحساب المشترك يوزّع الدفعات حسب جهة كل فاتورة.</p>
       <div class="row"><div class="f-lg"><label>حساب جديد</label><input id="gw_acc_name" type="text" placeholder="مثال: Tap — الأندلس"></div><div class="cx-row-btn"><button class="btn btn-ghost btn-md" data-on-click="gwAddAccount">إضافة حساب</button></div></div>
       <h3 class="cx-h3">من يرفع الملفات <span class="file-hint">المحاسب والمدير يرفعون دائماً</span></h3>
       <table class="exec-table cx-tbl" data-qyl="gwImporters" data-qyl-title="من يرفع ملفات البوابة"><thead><tr><th>المستخدم</th><th>الدور</th><th data-noexport>يرفع</th></tr></thead><tbody>
